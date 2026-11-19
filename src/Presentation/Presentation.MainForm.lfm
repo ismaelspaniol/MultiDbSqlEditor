@@ -1,0 +1,187 @@
+object MainForm: TMainForm
+  Left = 320
+  Height = 700
+  Top = 160
+  Width = 1140
+  Caption = 'Multi-DB SQL Editor'
+  ClientHeight = 700
+  ClientWidth = 1140
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  Position = poScreenCenter
+  LCLVersion = '3.0.0.0'
+  object pnlLeft: TPanel
+    Left = 0
+    Height = 677
+    Top = 0
+    Width = 260
+    Align = alLeft
+    BevelOuter = bvNone
+    ClientHeight = 677
+    ClientWidth = 260
+    TabOrder = 0
+    object lblConnections: TLabel
+      Left = 8
+      Height = 15
+      Top = 8
+      Width = 244
+      Align = alTop
+      BorderSpacing.Around = 8
+      Caption = 'Conexões (duplo clique abre SQL)'
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+    object pnlConnActions: TPanel
+      Left = 8
+      Height = 32
+      Top = 31
+      Width = 244
+      Align = alTop
+      BevelOuter = bvNone
+      BorderSpacing.Left = 8
+      BorderSpacing.Right = 8
+      BorderSpacing.Bottom = 6
+      ClientHeight = 32
+      ClientWidth = 244
+      TabOrder = 0
+      object btnNewConn: TButton
+        Left = 0
+        Height = 28
+        Top = 2
+        Width = 76
+        Caption = 'Nova'
+        TabOrder = 0
+        OnClick = btnNewConnClick
+      end
+      object btnEditConn: TButton
+        Left = 84
+        Height = 28
+        Top = 2
+        Width = 76
+        Caption = 'Editar'
+        TabOrder = 1
+        OnClick = btnEditConnClick
+      end
+      object btnDeleteConn: TButton
+        Left = 168
+        Height = 28
+        Top = 2
+        Width = 76
+        Caption = 'Excluir'
+        TabOrder = 2
+        OnClick = btnDeleteConnClick
+      end
+    end
+    object pnlTreeFilter: TPanel
+      Left = 8
+      Height = 26
+      Top = 69
+      Width = 244
+      Align = alTop
+      BevelOuter = bvNone
+      BorderSpacing.Left = 8
+      BorderSpacing.Right = 8
+      BorderSpacing.Bottom = 6
+      ClientHeight = 26
+      ClientWidth = 244
+      TabOrder = 1
+      object edtTreeFilter: TEdit
+        Left = 0
+        Height = 23
+        Top = 1
+        Width = 216
+        Align = alClient
+        BorderSpacing.Right = 4
+        TabOrder = 0
+        TextHint = 'Filtrar conexões, tabelas, views...'
+        OnChange = edtTreeFilterChange
+      end
+      object btnClearFilter: TButton
+        Left = 220
+        Height = 26
+        Top = 0
+        Width = 24
+        Align = alRight
+        Caption = '×'
+        TabOrder = 1
+        OnClick = btnClearFilterClick
+      end
+    end
+    object tvConnections: TTreeView
+      Left = 8
+      Height = 572
+      Top = 101
+      Width = 244
+      Align = alClient
+      BorderSpacing.Left = 8
+      BorderSpacing.Right = 8
+      BorderSpacing.Bottom = 8
+      ReadOnly = True
+      TabOrder = 2
+      OnDblClick = tvConnectionsDblClick
+      OnExpanding = tvConnectionsExpanding
+    end
+  end
+  object Splitter1: TSplitter
+    Left = 260
+    Height = 677
+    Top = 0
+    Width = 5
+  end
+  object pnlMain: TPanel
+    Left = 265
+    Height = 677
+    Top = 0
+    Width = 875
+    Align = alClient
+    BevelOuter = bvNone
+    ClientHeight = 677
+    ClientWidth = 875
+    TabOrder = 2
+    object pnlEditorBar: TPanel
+      Left = 0
+      Height = 34
+      Top = 0
+      Width = 875
+      Align = alTop
+      BevelOuter = bvNone
+      ClientHeight = 34
+      ClientWidth = 875
+      TabOrder = 0
+      object btnNewTab: TButton
+        Left = 4
+        Height = 26
+        Top = 4
+        Width = 104
+        Caption = 'Nova Aba SQL'
+        TabOrder = 0
+        OnClick = btnNewTabClick
+      end
+      object btnCloseTab: TButton
+        Left = 114
+        Height = 26
+        Top = 4
+        Width = 86
+        Caption = 'Fechar Aba'
+        TabOrder = 1
+        OnClick = btnCloseTabClick
+      end
+    end
+    object pgEditors: TPageControl
+      Left = 0
+      Height = 643
+      Top = 34
+      Width = 875
+      Align = alClient
+      TabOrder = 1
+    end
+  end
+  object StatusBar1: TStatusBar
+    Left = 0
+    Height = 23
+    Top = 677
+    Width = 1140
+    Panels = <>
+    SimplePanel = True
+  end
+end

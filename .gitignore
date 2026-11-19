@@ -1,0 +1,33 @@
+# Lazarus / Free Pascal build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.ppu
+*.rst
+*.rsj
+*.a
+*.compiled
+*.dbg
+*.or
+*.res
+*.lps
+*.bak
+*~
+
+# Output & IDE folders
+lib/
+backup/
+bin/
+__history/
+__recovery/
+
+# Third-party / local libraries
+vendor/
+third_party/
+
+# Local user config & connection profiles
+connections.json
+workspace.json
+*.local.json
