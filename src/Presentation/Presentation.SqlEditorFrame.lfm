@@ -8,82 +8,207 @@ object SqlEditorFrame: TSqlEditorFrame
   TabOrder = 0
   DesignLeft = 340
   DesignTop = 180
-  object pnlToolbar: TPanel
-    Left = 0
-    Height = 38
-    Top = 0
-    Width = 960
+  object pnlToolbar: TFlowPanel
+    Left = 4
+    Height = 34
+    Top = 4
+    Width = 952
     Align = alTop
+    AutoSize = True
+    AutoWrap = True
     BevelOuter = bvNone
-    ClientHeight = 38
-    ClientWidth = 960
+    BorderSpacing.Left = 4
+    BorderSpacing.Top = 4
+    BorderSpacing.Right = 4
+    BorderSpacing.Bottom = 4
+    ControlList = <    
+      item
+        Control = lblConn
+        WrapAfter = waAvoid
+      end    
+      item
+        Control = cbConnection
+      end    
+      item
+        Control = btnExecute
+      end    
+      item
+        Control = btnCancel
+      end    
+      item
+        Control = btnCommit
+      end    
+      item
+        Control = btnRollback
+      end    
+      item
+        Control = chkAutoCommit
+      end    
+      item
+        Control = lblBatchSize
+        WrapAfter = waAvoid
+      end    
+      item
+        Control = cbBatchSize
+      end    
+      item
+        Control = lblMemLimit
+        WrapAfter = waAvoid
+      end    
+      item
+        Control = cbMemLimit
+      end    
+      item
+        Control = btnFetchAll
+      end    
+      item
+        Control = btnOpenSql
+      end    
+      item
+        Control = btnSaveSql
+      end    
+      item
+        Control = btnExportCsv
+      end    
+      item
+        Control = lblTxStatus
+      end>
+    FlowLayout = tlCenter
+    FlowStyle = fsLeftRightTopBottom
     TabOrder = 0
+    OnResize = pnlToolbarResize
     object lblConn: TLabel
-      Left = 8
+      Left = 2
       Height = 15
-      Top = 11
+      Top = 7
       Width = 51
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       Caption = 'Conexão:'
     end
     object cbConnection: TComboBox
-      Left = 64
+      Left = 59
       Height = 23
-      Top = 7
-      Width = 190
+      Top = 3
+      Width = 200
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       ItemHeight = 15
       Style = csDropDownList
       TabOrder = 0
       OnChange = cbConnectionChange
     end
     object btnExecute: TButton
-      Left = 260
+      Left = 265
       Height = 26
-      Top = 6
-      Width = 88
+      Top = 2
+      Width = 96
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       Caption = 'Executar (F9)'
+      Constraints.MinHeight = 26
       TabOrder = 1
       OnClick = btnExecuteClick
     end
-    object btnCommit: TButton
-      Left = 352
+    object btnCancel: TButton
+      Left = 367
       Height = 26
-      Top = 6
-      Width = 64
-      Caption = 'Commit'
+      Top = 2
+      Width = 68
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Cancelar'
+      Constraints.MinHeight = 26
       Enabled = False
       TabOrder = 2
+      OnClick = btnCancelClick
+    end
+    object btnCommit: TButton
+      Left = 441
+      Height = 26
+      Top = 2
+      Width = 68
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Commit'
+      Constraints.MinHeight = 26
+      Enabled = False
+      TabOrder = 3
       OnClick = btnCommitClick
     end
     object btnRollback: TButton
-      Left = 420
+      Left = 515
       Height = 26
-      Top = 6
-      Width = 64
+      Top = 2
+      Width = 68
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       Caption = 'Rollback'
+      Constraints.MinHeight = 26
       Enabled = False
-      TabOrder = 3
+      TabOrder = 4
       OnClick = btnRollbackClick
     end
     object chkAutoCommit: TCheckBox
-      Left = 490
+      Left = 589
       Height = 19
-      Top = 9
+      Top = 5
       Width = 86
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       Caption = 'Auto-commit'
-      TabOrder = 4
+      TabOrder = 5
     end
     object lblBatchSize: TLabel
-      Left = 582
+      Left = 681
       Height = 15
-      Top = 11
+      Top = 7
       Width = 27
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       Caption = 'Lote:'
     end
     object cbBatchSize: TComboBox
-      Left = 612
+      Left = 714
       Height = 23
-      Top = 7
-      Width = 66
+      Top = 3
+      Width = 76
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       ItemHeight = 15
       ItemIndex = 1
       Items.Strings = (
@@ -93,63 +218,140 @@ object SqlEditorFrame: TSqlEditorFrame
         '1000'
         'Todos'
       )
-      TabOrder = 5
+      TabOrder = 6
       Text = '100'
     end
+    object lblMemLimit: TLabel
+      Left = 796
+      Height = 15
+      Top = 7
+      Width = 30
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'RAM:'
+    end
+    object cbMemLimit: TComboBox
+      Left = 832
+      Height = 23
+      Hint = 'Limite máximo de memória RAM estimada (ex.: 200, 256 MB, 1.5 GB, 2 GB ou 0 / Sem limite)'
+      Top = 3
+      Width = 96
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      ItemHeight = 15
+      ItemIndex = 1
+      Items.Strings = (
+        '64 MB'
+        '128 MB'
+        '256 MB'
+        '512 MB'
+        '1 GB'
+        '2 GB'
+        'Sem limite'
+      )
+      ParentShowHint = False
+      ShowHint = True
+      TabOrder = 7
+      Text = '128 MB'
+      OnEditingDone = cbMemLimitEditingDone
+      OnKeyDown = cbMemLimitKeyDown
+    end
     object btnFetchAll: TButton
-      Left = 684
+      Left = 930
       Height = 26
-      Top = 6
+      Top = 2
       Width = 68
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       Caption = 'Fetch All'
+      Constraints.MinHeight = 26
       Enabled = False
-      TabOrder = 6
+      TabOrder = 8
       OnClick = btnFetchAllClick
     end
     object btnOpenSql: TButton
-      Left = 758
+      Left = 1004
       Height = 26
-      Top = 6
-      Width = 46
+      Top = 2
+      Width = 52
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       Caption = 'Abrir'
-      TabOrder = 7
+      Constraints.MinHeight = 26
+      TabOrder = 9
       OnClick = btnOpenSqlClick
     end
     object btnSaveSql: TButton
-      Left = 808
+      Left = 1062
       Height = 26
-      Top = 6
-      Width = 48
+      Top = 2
+      Width = 54
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       Caption = 'Salvar'
-      TabOrder = 8
+      Constraints.MinHeight = 26
+      TabOrder = 10
       OnClick = btnSaveSqlClick
     end
     object btnExportCsv: TButton
-      Left = 860
+      Left = 1122
       Height = 26
-      Top = 6
-      Width = 42
+      Top = 2
+      Width = 48
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       Caption = 'CSV'
+      Constraints.MinHeight = 26
       Enabled = False
-      TabOrder = 9
+      TabOrder = 11
       OnClick = btnExportCsvClick
     end
     object lblTxStatus: TLabel
-      Left = 928
+      Left = 2
       Height = 15
-      Top = 11
+      Top = 32
       Width = 26
-      Alignment = taRightJustify
-      Anchors = [akTop, akRight]
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
       Caption = '---'
+      Font.Style = [fsBold]
+      ParentFont = False
     end
   end
   object SynEdit1: TSynEdit
     Left = 0
-    Height = 260
-    Top = 38
-    Width = 820
+    Height = 250
+    Top = 42
+    Width = 960
     Align = alTop
+    Constraints.MinHeight = 100
     Font.Height = -14
     Font.Name = 'Consolas'
     Font.Pitch = fpFixed
@@ -173,72 +375,159 @@ object SqlEditorFrame: TSqlEditorFrame
   object Splitter1: TSplitter
     Cursor = crVSplit
     Left = 0
-    Height = 5
-    Top = 298
-    Width = 820
+    Height = 6
+    Top = 292
+    Width = 960
     Align = alTop
+    MinSize = 100
     ResizeAnchor = akTop
+    ResizeStyle = rsUpdate
+    OnMoved = Splitter1Moved
   end
   object pgBottom: TPageControl
     Left = 0
-    Height = 257
-    Top = 303
-    Width = 820
+    Height = 262
+    Top = 298
+    Width = 960
     ActivePage = tsData
     Align = alClient
+    Constraints.MinHeight = 120
     TabIndex = 0
     TabOrder = 3
     object tsData: TTabSheet
       Caption = 'Dados (Grid)'
-      ClientHeight = 229
-      ClientWidth = 812
-      object grdResults: TDrawGrid
-        Left = 0
-        Height = 205
-        Top = 0
-        Width = 812
-        Align = alClient
-        ColCount = 1
-        DefaultColWidth = 140
-        DefaultRowHeight = 22
-        FixedCols = 0
-        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRangeSelect, goColSizing, goThumbTracking]
-        RowCount = 1
+      ClientHeight = 234
+      ClientWidth = 952
+    end
+    object tsPerformance: TTabSheet
+      Caption = 'Performance Analysis'
+      ClientHeight = 234
+      ClientWidth = 952
+      object pnlPerfSummary: TPanel
+        Left = 6
+        Height = 56
+        Top = 6
+        Width = 940
+        Align = alTop
+        AutoSize = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 6
+        ClientHeight = 56
+        ClientWidth = 940
         TabOrder = 0
-        OnDrawCell = grdResultsDrawCell
-        OnHeaderClick = grdResultsHeaderClick
-        OnTopLeftChanged = grdResultsTopLeftChanged
-      end
-      object pnlGridFooter: TPanel
-        Left = 0
-        Height = 24
-        Top = 205
-        Width = 812
-        Align = alBottom
-        BevelOuter = bvLowered
-        ClientHeight = 24
-        ClientWidth = 812
-        TabOrder = 1
-        object lblGridSummary: TLabel
-          Left = 8
+        object lblPerfTiming: TLabel
+          Left = 0
           Height = 15
-          Top = 4
-          Width = 162
-          Caption = 'Nenhuma consulta executada.'
+          Top = 0
+          Width = 940
+          Align = alTop
+          AutoSize = True
+          Caption = 'Nenhuma análise disponível.'
+          Font.Style = [fsBold]
+          ParentFont = False
+          ShowAccelChar = False
+          WordWrap = True
+        end
+        object lblPerfIO: TLabel
+          Left = 0
+          Height = 15
+          Top = 18
+          Width = 940
+          Align = alTop
+          AutoSize = True
+          BorderSpacing.Top = 3
+          Caption = 'I/O: ---'
+          ShowAccelChar = False
+          WordWrap = True
+        end
+        object lblPerfMemory: TLabel
+          Left = 0
+          Height = 15
+          Top = 36
+          Width = 940
+          Align = alTop
+          AutoSize = True
+          BorderSpacing.Top = 3
+          Caption = 'Memória / Leituras: ---'
+          ShowAccelChar = False
+          WordWrap = True
+        end
+      end
+      object pnlPerfPlan: TPanel
+        Left = 6
+        Height = 88
+        Top = 68
+        Width = 940
+        Align = alTop
+        BevelOuter = bvNone
+        BorderSpacing.Left = 6
+        BorderSpacing.Right = 6
+        ClientHeight = 88
+        ClientWidth = 940
+        Constraints.MinHeight = 56
+        TabOrder = 1
+        object lblPerfPlanTitle: TLabel
+          Left = 0
+          Height = 15
+          Top = 0
+          Width = 940
+          Align = alTop
+          BorderSpacing.Bottom = 3
+          Caption = 'Plano de Execução (SQL Plan):'
           Font.Style = [fsBold]
           ParentFont = False
         end
+        object memPerfPlan: TMemo
+          Left = 0
+          Height = 70
+          Top = 18
+          Width = 940
+          Align = alClient
+          Font.Height = -12
+          Font.Name = 'Consolas'
+          ParentFont = False
+          ReadOnly = True
+          ScrollBars = ssBoth
+          TabOrder = 0
+        end
+      end
+      object SplitterPerf: TSplitter
+        Cursor = crVSplit
+        Left = 0
+        Height = 5
+        Top = 156
+        Width = 952
+        Align = alTop
+        MinSize = 48
+        ResizeAnchor = akTop
+        ResizeStyle = rsUpdate
+      end
+      object grdPerfTables: TStringGrid
+        Left = 6
+        Height = 67
+        Top = 167
+        Width = 940
+        Align = alClient
+        BorderSpacing.Around = 6
+        ColCount = 6
+        DefaultColWidth = 130
+        DefaultRowHeight = 22
+        FixedCols = 0
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+        RowCount = 1
+        TabOrder = 3
+        OnPrepareCanvas = grdPerfTablesPrepareCanvas
       end
     end
     object tsMessages: TTabSheet
       Caption = 'Mensagens / Log'
-      ClientHeight = 229
-      ClientWidth = 812
+      ClientHeight = 234
+      ClientWidth = 952
       object memMessages: TMemo
         Left = 0
-        Height = 229
+        Height = 234
         Top = 0
-        Width = 812
+        Width = 952
         Align = alClient
         Font.Height = -12
         Font.Name = 'Consolas'
@@ -266,10 +555,11 @@ object SqlEditorFrame: TSqlEditorFrame
     Left = 640
     Top = 176
   end
-  object dlgSaveCsv: TSaveDialog
-    DefaultExt = '.csv'
-    Filter = 'CSV Files (*.csv)|*.csv|Todos os arquivos (*.*)|*.*'
-    Left = 720
-    Top = 176
+  object tmrExecElapsed: TTimer
+    Enabled = False
+    Interval = 250
+    OnTimer = tmrExecElapsedTimer
+    Left = 560
+    Top = 120
   end
 end

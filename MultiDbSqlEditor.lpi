@@ -63,6 +63,30 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
+        <Filename Value="src\Domain\Domain.MonitoringTypes.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Domain\Domain.SqlAliasResolver.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Domain\Domain.TableStructureTypes.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Domain\Domain.DatabaseCompareTypes.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Domain\Domain.MaintenanceTypes.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Domain\Domain.ScriptExecutionTypes.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="src\Application\Application.TestConnectionUseCase.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
@@ -76,6 +100,34 @@
       </Unit>
       <Unit>
         <Filename Value="src\Application\Application.BrowseSchemaUseCase.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Application\Application.ManageDatabaseObjectsUseCase.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Application\Application.DatabaseMonitoringUseCase.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Application\Application.ManageTableStructureUseCase.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Application\Application.AsyncQueryRunner.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Application\Application.DatabaseComparerUseCase.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Application\Application.DatabaseMaintenanceUseCase.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Application\Application.ScriptExecutorUseCase.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
@@ -99,6 +151,10 @@
         <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
+        <Filename Value="src\Infrastructure\Infrastructure.FirebirdServicesRunner.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
         <Filename Value="src\Presentation\Presentation.ConnectionForm.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="ConnectionForm"/>
@@ -111,6 +167,80 @@
         <ComponentName Value="SqlEditorFrame"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Frame"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.ObjectEditorFrame.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="ObjectEditorFrame"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.GeneratorForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="GeneratorForm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.DatabaseMonitorFrame.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="DatabaseMonitorFrame"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.TableEditorForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="TableEditorForm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.TableEditorFrame.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="TableEditorFrame"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.DatabaseComparerFrame.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="DatabaseComparerFrame"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.DatabaseMaintenanceForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="DatabaseMaintenanceForm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.ScriptExecutorFrame.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="ScriptExecutorFrame"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.QueryResultGridFrame.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="QueryResultGridFrame"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Frame"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.SqlCompletionController.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.ProcedureParamsForm.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="ProcedureParamsForm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
       </Unit>
     </Units>
   </ProjectOptions>

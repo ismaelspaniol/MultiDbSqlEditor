@@ -31,6 +31,7 @@ type
     function FindById(const AId: string): TConnectionProfile;
     procedure Save(const AProfile: TConnectionProfile);
     procedure Delete(const AId: string);
+    procedure Reorder(const AOrderedIds: TStrings);
   end;
 
 implementation
@@ -236,6 +237,60 @@ begin
       end;
     end;
     SaveJsonArray(Arr);
+  finally
+    Arr.Free;
+  end;
+end;
+
+procedure TJsonConnectionRepository.Reorder(const AOrderedIds: TStrings);
+var
+  Arr, NewArr: TJSONArray;
+  Used: array of Boolean;
+  I, J: Integer;
+  TargetId: string;
+begin
+  if (AOrderedIds = nil) or (AOrderedIds.Count = 0) then
+    Exit;
+
+  Arr := LoadJsonArray;
+  try
+    if Arr.Count <= 1 then
+      Exit;
+
+    SetLength(Used, Arr.Count);
+    for J := 0 to Arr.Count - 1 do
+      Used[J] := False;
+
+    NewArr := TJSONArray.Create;
+    try
+      for I := 0 to AOrderedIds.Count - 1 do
+      begin
+        TargetId := Trim(AOrderedIds[I]);
+        if TargetId = '' then
+          Continue;
+
+        for J := 0 to Arr.Count - 1 do
+        begin
+          if (not Used[J]) and (Arr.Items[J] is TJSONObject) and
+             SameText(TJSONObject(Arr.Items[J]).Get('id', ''), TargetId) then
+          begin
+            Used[J] := True;
+            NewArr.Add(Arr.Items[J].Clone);
+            Break;
+          end;
+        end;
+      end;
+
+      for J := 0 to Arr.Count - 1 do
+      begin
+        if not Used[J] then
+          NewArr.Add(Arr.Items[J].Clone);
+      end;
+
+      SaveJsonArray(NewArr);
+    finally
+      NewArr.Free;
+    end;
   finally
     Arr.Free;
   end;

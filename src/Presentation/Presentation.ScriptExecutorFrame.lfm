@@ -1,0 +1,916 @@
+object ScriptExecutorFrame: TScriptExecutorFrame
+  Left = 0
+  Height = 600
+  Top = 0
+  Width = 1080
+  ClientHeight = 600
+  ClientWidth = 1080
+  TabOrder = 0
+  DesignLeft = 320
+  DesignTop = 160
+  object pnlToolbar: TFlowPanel
+    Left = 4
+    Height = 58
+    Top = 4
+    Width = 1072
+    Align = alTop
+    AutoSize = True
+    AutoWrap = True
+    BevelOuter = bvNone
+    BorderSpacing.Left = 4
+    BorderSpacing.Top = 4
+    BorderSpacing.Right = 4
+    BorderSpacing.Bottom = 4
+    ControlList = <    
+      item
+        Control = lblConn
+        WrapAfter = waAvoid
+      end    
+      item
+        Control = cbConnection
+      end    
+      item
+        Control = btnExecuteScript
+      end    
+      item
+        Control = btnExecuteFromCursor
+      end    
+      item
+        Control = btnExecuteSelection
+      end    
+      item
+        Control = btnPauseResume
+      end    
+      item
+        Control = btnCancel
+      end    
+      item
+        Control = btnCommit
+      end    
+      item
+        Control = btnRollback
+      end    
+      item
+        Control = lblCommitMode
+        WrapAfter = waAvoid
+      end    
+      item
+        Control = cbCommitMode
+      end    
+      item
+        Control = edtCommitEveryN
+      end    
+      item
+        Control = lblErrorPolicy
+        WrapAfter = waAvoid
+      end    
+      item
+        Control = cbErrorPolicy
+      end    
+      item
+        Control = btnOpenFile
+      end    
+      item
+        Control = btnSaveFile
+      end    
+      item
+        Control = btnClearScript
+      end    
+      item
+        Control = lblTxStatus
+      end>
+    FlowLayout = tlCenter
+    FlowStyle = fsLeftRightTopBottom
+    TabOrder = 0
+    OnResize = PanelsResize
+    object lblConn: TLabel
+      Left = 2
+      Height = 15
+      Top = 7
+      Width = 51
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Conexão:'
+    end
+    object cbConnection: TComboBox
+      Left = 59
+      Height = 23
+      Top = 3
+      Width = 185
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      ItemHeight = 15
+      Style = csDropDownList
+      TabOrder = 0
+      OnChange = cbConnectionChange
+    end
+    object btnExecuteScript: TButton
+      Left = 250
+      Height = 26
+      Hint = 'Executar script completo (ou fila de arquivos marcada) [F9]'
+      Top = 2
+      Width = 104
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Executar (F9)'
+      Constraints.MinHeight = 26
+      ParentShowHint = False
+      ShowHint = True
+      TabOrder = 1
+      OnClick = btnExecuteScriptClick
+    end
+    object btnExecuteFromCursor: TButton
+      Left = 360
+      Height = 26
+      Hint = 'Executar do cursor até o final do script [Shift+F9]'
+      Top = 2
+      Width = 132
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Do Cursor (Shift+F9)'
+      Constraints.MinHeight = 26
+      ParentShowHint = False
+      ShowHint = True
+      TabOrder = 2
+      OnClick = btnExecuteFromCursorClick
+    end
+    object btnExecuteSelection: TButton
+      Left = 498
+      Height = 26
+      Top = 2
+      Width = 66
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Seleção'
+      Constraints.MinHeight = 26
+      TabOrder = 3
+      OnClick = btnExecuteSelectionClick
+    end
+    object btnPauseResume: TButton
+      Left = 570
+      Height = 26
+      Top = 2
+      Width = 62
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Pausar'
+      Constraints.MinHeight = 26
+      Enabled = False
+      TabOrder = 4
+      OnClick = btnPauseResumeClick
+    end
+    object btnCancel: TButton
+      Left = 638
+      Height = 26
+      Top = 2
+      Width = 68
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Cancelar'
+      Constraints.MinHeight = 26
+      Enabled = False
+      TabOrder = 5
+      OnClick = btnCancelClick
+    end
+    object btnCommit: TButton
+      Left = 712
+      Height = 26
+      Top = 2
+      Width = 64
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Commit'
+      Constraints.MinHeight = 26
+      Enabled = False
+      TabOrder = 6
+      OnClick = btnCommitClick
+    end
+    object btnRollback: TButton
+      Left = 782
+      Height = 26
+      Top = 2
+      Width = 68
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Rollback'
+      Constraints.MinHeight = 26
+      Enabled = False
+      TabOrder = 7
+      OnClick = btnRollbackClick
+    end
+    object lblCommitMode: TLabel
+      Left = 856
+      Height = 15
+      Top = 7
+      Width = 58
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Transação:'
+    end
+    object cbCommitMode: TComboBox
+      Left = 920
+      Height = 23
+      Top = 3
+      Width = 150
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      ItemHeight = 15
+      ItemIndex = 0
+      Items.Strings = (
+        'Commit ao final (única)'
+        'Commit por comando'
+        'Commit a cada N comandos'
+        'Commit por arquivo (.sql)'
+        'Manual (COMMIT no script)'
+      )
+      Style = csDropDownList
+      TabOrder = 8
+      Text = 'Commit ao final (única)'
+      OnChange = cbCommitModeChange
+    end
+    object edtCommitEveryN: TEdit
+      Left = 2
+      Height = 23
+      Hint = 'Quantidade de comandos por COMMIT no modo lote'
+      Top = 32
+      Width = 58
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      ParentShowHint = False
+      ShowHint = True
+      TabOrder = 9
+      Text = '1000'
+      Visible = False
+    end
+    object lblErrorPolicy: TLabel
+      Left = 66
+      Height = 15
+      Top = 36
+      Width = 27
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Erro:'
+    end
+    object cbErrorPolicy: TComboBox
+      Left = 99
+      Height = 23
+      Top = 32
+      Width = 155
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      ItemHeight = 15
+      ItemIndex = 0
+      Items.Strings = (
+        'Parar no erro'
+        'Perguntar (IBExpert)'
+        'Ignorar e continuar'
+      )
+      Style = csDropDownList
+      TabOrder = 10
+      Text = 'Parar no erro'
+    end
+    object btnOpenFile: TButton
+      Left = 260
+      Height = 26
+      Top = 30
+      Width = 76
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Abrir .sql'
+      Constraints.MinHeight = 26
+      TabOrder = 11
+      OnClick = btnOpenFileClick
+    end
+    object btnSaveFile: TButton
+      Left = 342
+      Height = 26
+      Top = 30
+      Width = 58
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Salvar'
+      Constraints.MinHeight = 26
+      TabOrder = 12
+      OnClick = btnSaveFileClick
+    end
+    object btnClearScript: TButton
+      Left = 406
+      Height = 26
+      Top = 30
+      Width = 58
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Limpar'
+      Constraints.MinHeight = 26
+      TabOrder = 13
+      OnClick = btnClearScriptClick
+    end
+    object lblTxStatus: TLabel
+      Left = 470
+      Height = 15
+      Top = 36
+      Width = 26
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 4
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = '---'
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+  end
+  object pnlTopArea: TPanel
+    Left = 0
+    Height = 265
+    Top = 66
+    Width = 1080
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 265
+    ClientWidth = 1080
+    Constraints.MinHeight = 120
+    TabOrder = 1
+    object pnlQueue: TPanel
+      Left = 4
+      Height = 265
+      Top = 0
+      Width = 280
+      Align = alLeft
+      BevelOuter = bvLowered
+      BorderSpacing.Left = 4
+      ClientHeight = 265
+      ClientWidth = 280
+      Constraints.MinWidth = 210
+      TabOrder = 0
+      object lblQueueTitle: TLabel
+        Left = 5
+        Height = 15
+        Top = 5
+        Width = 270
+        Align = alTop
+        BorderSpacing.Around = 4
+        Caption = 'Fila de Scripts (.sql)'
+        Font.Style = [fsBold]
+        ParentFont = False
+      end
+      object pnlQueueBar: TFlowPanel
+        Left = 3
+        Height = 28
+        Top = 24
+        Width = 274
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Left = 2
+        BorderSpacing.Right = 2
+        BorderSpacing.Bottom = 2
+        ControlList = <        
+          item
+            Control = btnQueueAdd
+          end        
+          item
+            Control = btnQueueRemove
+          end        
+          item
+            Control = btnQueueUp
+          end        
+          item
+            Control = btnQueueDown
+          end        
+          item
+            Control = btnQueueClear
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 0
+        OnResize = PanelsResize
+        object btnQueueAdd: TButton
+          Left = 2
+          Height = 24
+          Hint = 'Adicionar um ou mais arquivos .sql à fila de execução'
+          Top = 2
+          Width = 80
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 1
+          BorderSpacing.Right = 2
+          BorderSpacing.Bottom = 1
+          Caption = '+ Arquivos'
+          Constraints.MinHeight = 24
+          ParentShowHint = False
+          ShowHint = True
+          TabOrder = 0
+          OnClick = btnQueueAddClick
+        end
+        object btnQueueRemove: TButton
+          Left = 86
+          Height = 24
+          Top = 2
+          Width = 64
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 1
+          BorderSpacing.Right = 2
+          BorderSpacing.Bottom = 1
+          Caption = 'Remover'
+          Constraints.MinHeight = 24
+          TabOrder = 1
+          OnClick = btnQueueRemoveClick
+        end
+        object btnQueueUp: TButton
+          Left = 154
+          Height = 24
+          Hint = 'Mover script selecionado para cima na fila'
+          Top = 2
+          Width = 26
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 1
+          BorderSpacing.Right = 2
+          BorderSpacing.Bottom = 1
+          Caption = '↑'
+          Constraints.MinHeight = 24
+          Constraints.MinWidth = 26
+          ParentShowHint = False
+          ShowHint = True
+          TabOrder = 2
+          OnClick = btnQueueUpClick
+        end
+        object btnQueueDown: TButton
+          Left = 184
+          Height = 24
+          Hint = 'Mover script selecionado para baixo na fila'
+          Top = 2
+          Width = 26
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 1
+          BorderSpacing.Right = 2
+          BorderSpacing.Bottom = 1
+          Caption = '↓'
+          Constraints.MinHeight = 24
+          Constraints.MinWidth = 26
+          ParentShowHint = False
+          ShowHint = True
+          TabOrder = 3
+          OnClick = btnQueueDownClick
+        end
+        object btnQueueClear: TButton
+          Left = 214
+          Height = 24
+          Top = 2
+          Width = 54
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 1
+          BorderSpacing.Right = 2
+          BorderSpacing.Bottom = 1
+          Caption = 'Limpar'
+          Constraints.MinHeight = 24
+          TabOrder = 4
+          OnClick = btnQueueClearClick
+        end
+      end
+      object clbFiles: TCheckListBox
+        Left = 5
+        Height = 154
+        Hint = 'Duplo clique abre o arquivo no editor; marque os arquivos para execução em lote'
+        Top = 54
+        Width = 270
+        Align = alClient
+        BorderSpacing.Left = 4
+        BorderSpacing.Right = 4
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 1
+        OnClick = clbFilesClickCheck
+        OnClickCheck = clbFilesClickCheck
+        OnDblClick = clbFilesDblClick
+      end
+      object pnlQueueFooter: TPanel
+        Left = 1
+        Height = 56
+        Top = 208
+        Width = 278
+        Align = alBottom
+        AutoSize = True
+        BevelOuter = bvNone
+        ClientHeight = 56
+        ClientWidth = 278
+        TabOrder = 2
+        object chkRunQueueDirect: TCheckBox
+          Left = 4
+          Height = 19
+          Hint = 'Executa os arquivos marcados direto do disco sem precisar carregar scripts enormes na memória do editor'
+          Top = 4
+          Width = 270
+          Align = alTop
+          BorderSpacing.Around = 4
+          Caption = 'Executar fila direto do disco'
+          ParentShowHint = False
+          ShowHint = True
+          TabOrder = 0
+        end
+        object btnLoadQueueToEditor: TButton
+          Left = 4
+          Height = 26
+          Top = 26
+          Width = 270
+          Align = alTop
+          AutoSize = True
+          BorderSpacing.Left = 4
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 4
+          Caption = 'Carregar Marcados no Editor'
+          Constraints.MinHeight = 26
+          TabOrder = 1
+          OnClick = btnLoadQueueToEditorClick
+        end
+      end
+    end
+    object splQueue: TSplitter
+      Left = 284
+      Height = 265
+      Top = 0
+      Width = 5
+      MinSize = 200
+      ResizeStyle = rsUpdate
+    end
+    object SynEdit1: TSynEdit
+      Left = 289
+      Height = 265
+      Top = 0
+      Width = 791
+      Align = alClient
+      Constraints.MinWidth = 260
+      Font.Height = -14
+      Font.Name = 'Consolas'
+      Font.Pitch = fpFixed
+      Font.Quality = fqCleartype
+      ParentColor = False
+      ParentFont = False
+      TabOrder = 2
+      OnKeyDown = SynEdit1KeyDown
+      Gutter.Width = 55
+      Gutter.MouseActions = <>
+      RightGutter.Width = 0
+      RightGutter.MouseActions = <>
+      Highlighter = SynSQLSyn1
+      Options = [eoAutoIndent, eoBracketHighlight, eoGroupUndo, eoScrollPastEol, eoSmartTabs, eoTabsToSpaces, eoTrimTrailingSpaces]
+      VisibleSpecialChars = [vscSpace, vscTabAtLast]
+      ReadOnly = False
+      RightEdge = 120
+      ScrollBars = ssBoth
+      TabWidth = 2
+    end
+  end
+  object Splitter1: TSplitter
+    Cursor = crVSplit
+    Left = 0
+    Height = 6
+    Top = 331
+    Width = 1080
+    Align = alTop
+    MinSize = 120
+    ResizeAnchor = akTop
+    ResizeStyle = rsUpdate
+    OnMoved = Splitter1Moved
+  end
+  object pnlBottom: TPanel
+    Left = 0
+    Height = 263
+    Top = 337
+    Width = 1080
+    Align = alClient
+    BevelOuter = bvNone
+    ClientHeight = 263
+    ClientWidth = 1080
+    Constraints.MinHeight = 130
+    TabOrder = 3
+    object pnlProgress: TPanel
+      Left = 4
+      Height = 24
+      Top = 4
+      Width = 1072
+      Align = alTop
+      BevelOuter = bvLowered
+      BorderSpacing.Left = 4
+      BorderSpacing.Top = 4
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 4
+      ClientHeight = 24
+      ClientWidth = 1072
+      TabOrder = 0
+      object pbProgress: TProgressBar
+        Left = 4
+        Height = 16
+        Top = 4
+        Width = 220
+        Align = alLeft
+        BorderSpacing.Around = 3
+        Smooth = True
+        TabOrder = 0
+      end
+      object lblProgress: TLabel
+        Left = 230
+        Height = 16
+        Top = 4
+        Width = 838
+        Align = alClient
+        BorderSpacing.Left = 6
+        BorderSpacing.Top = 3
+        BorderSpacing.Right = 3
+        BorderSpacing.Bottom = 3
+        Caption = 'Pronto — adicione arquivos à fila ou digite SQL no editor (F9 executa | Ctrl+F12 abre nova aba Script Executive).'
+        Font.Style = [fsBold]
+        ParentFont = False
+        ShowAccelChar = False
+      end
+    end
+    object pgOutput: TPageControl
+      Left = 0
+      Height = 231
+      Top = 32
+      Width = 1080
+      ActivePage = tsStatements
+      Align = alClient
+      TabIndex = 0
+      TabOrder = 1
+      object tsStatements: TTabSheet
+        Caption = 'Comandos Executados'
+        ClientHeight = 203
+        ClientWidth = 1072
+        object grdStatements: TStringGrid
+          Left = 0
+          Height = 203
+          Top = 0
+          Width = 1072
+          Align = alClient
+          ColCount = 8
+          DefaultColWidth = 130
+          DefaultRowHeight = 22
+          FixedCols = 0
+          Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+          RowCount = 1
+          TabOrder = 0
+          OnDblClick = grdStatementsDblClick
+          OnKeyDown = grdStatementsKeyDown
+          OnPrepareCanvas = grdStatementsPrepareCanvas
+        end
+      end
+      object tsLog: TTabSheet
+        Caption = 'Log Detalhado'
+        ClientHeight = 203
+        ClientWidth = 1072
+        object pnlLogBar: TFlowPanel
+          Left = 4
+          Height = 30
+          Top = 4
+          Width = 1064
+          Align = alTop
+          AutoSize = True
+          AutoWrap = True
+          BevelOuter = bvNone
+          BorderSpacing.Around = 4
+          ControlList = <          
+            item
+              Control = btnCopyLog
+            end          
+            item
+              Control = btnSaveLog
+            end          
+            item
+              Control = btnClearLog
+            end          
+            item
+              Control = chkLogToFile
+            end          
+            item
+              Control = edtLogFile
+            end          
+            item
+              Control = btnBrowseLogFile
+            end>
+          FlowLayout = tlCenter
+          FlowStyle = fsLeftRightTopBottom
+          TabOrder = 0
+          OnResize = PanelsResize
+          object btnCopyLog: TButton
+            Left = 2
+            Height = 24
+            Top = 2
+            Width = 84
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Copiar Log'
+            Constraints.MinHeight = 24
+            TabOrder = 0
+            OnClick = btnCopyLogClick
+          end
+          object btnSaveLog: TButton
+            Left = 92
+            Height = 24
+            Top = 2
+            Width = 84
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Salvar Log'
+            Constraints.MinHeight = 24
+            TabOrder = 1
+            OnClick = btnSaveLogClick
+          end
+          object btnClearLog: TButton
+            Left = 182
+            Height = 24
+            Top = 2
+            Width = 84
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 8
+            BorderSpacing.Bottom = 2
+            Caption = 'Limpar Log'
+            Constraints.MinHeight = 24
+            TabOrder = 2
+            OnClick = btnClearLogClick
+          end
+          object chkLogToFile: TCheckBox
+            Left = 274
+            Height = 19
+            Top = 4
+            Width = 148
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Gravar log em arquivo:'
+            TabOrder = 3
+            OnChange = chkLogToFileChange
+          end
+          object edtLogFile: TEdit
+            Left = 428
+            Height = 23
+            Top = 2
+            Width = 260
+            Anchors = []
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Enabled = False
+            TabOrder = 4
+          end
+          object btnBrowseLogFile: TButton
+            Left = 694
+            Height = 24
+            Top = 2
+            Width = 36
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = '...'
+            Constraints.MinHeight = 24
+            Enabled = False
+            TabOrder = 5
+            OnClick = btnBrowseLogFileClick
+          end
+        end
+        object memLog: TMemo
+          Left = 0
+          Height = 165
+          Top = 38
+          Width = 1072
+          Align = alClient
+          Font.Height = -12
+          Font.Name = 'Consolas'
+          ParentFont = False
+          ReadOnly = True
+          ScrollBars = ssBoth
+          TabOrder = 1
+        end
+      end
+    end
+  end
+  object SynSQLSyn1: TSynSQLSyn
+    Enabled = False
+    SQLDialect = sqlFirebird40
+    Left = 720
+    Top = 120
+  end
+  object dlgOpenSql: TOpenDialog
+    Filter = 'SQL Scripts (*.sql)|*.sql|Todos os arquivos (*.*)|*.*'
+    Left = 640
+    Top = 120
+  end
+  object dlgAddSqlFiles: TOpenDialog
+    Filter = 'SQL Scripts (*.sql)|*.sql|Todos os arquivos (*.*)|*.*'
+    Options = [ofAllowMultiSelect, ofFileMustExist, ofEnableSizing]
+    Left = 640
+    Top = 176
+  end
+  object dlgSaveSql: TSaveDialog
+    DefaultExt = '.sql'
+    Filter = 'SQL Scripts (*.sql)|*.sql|Todos os arquivos (*.*)|*.*'
+    Left = 720
+    Top = 176
+  end
+  object dlgSaveLog: TSaveDialog
+    DefaultExt = '.log'
+    Filter = 'Log / Texto (*.log;*.txt)|*.log;*.txt|Todos os arquivos (*.*)|*.*'
+    Left = 800
+    Top = 176
+  end
+  object tmrElapsed: TTimer
+    Enabled = False
+    Interval = 250
+    OnTimer = tmrElapsedTimer
+    Left = 560
+    Top = 120
+  end
+end

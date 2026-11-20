@@ -27,8 +27,10 @@ type
     function ExecuteSQL(
       const ASQL: string;
       const AAutoCommit: Boolean = False;
-      const AFetchBatchSize: Integer = 100
+      const AFetchBatchSize: Integer = 100;
+      const AMemoryLimitBytes: Int64 = DEFAULT_RESULT_MEMORY_LIMIT_BYTES
     ): TQueryResult;
+    function CancelRunningQuery(out AMessage: string): Boolean;
   end;
 
   { Provedor específico de um banco de dados (Firebird, PostgreSQL, etc.) }
@@ -52,6 +54,7 @@ type
     function FindById(const AId: string): TConnectionProfile;
     procedure Save(const AProfile: TConnectionProfile);
     procedure Delete(const AId: string);
+    procedure Reorder(const AOrderedIds: TStrings);
   end;
 
 implementation

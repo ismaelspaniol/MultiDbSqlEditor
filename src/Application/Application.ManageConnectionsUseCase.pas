@@ -5,6 +5,7 @@ unit Application.ManageConnectionsUseCase;
 interface
 
 uses
+  Classes,
   SysUtils,
   Domain.ConnectionProfile,
   Domain.Interfaces;
@@ -19,6 +20,7 @@ type
     function FindById(const AId: string): TConnectionProfile;
     procedure Save(const AProfile: TConnectionProfile);
     procedure Delete(const AId: string);
+    procedure Reorder(const AOrderedIds: TStrings);
   end;
 
 implementation
@@ -60,6 +62,12 @@ begin
   if Trim(AId) = '' then
     raise Exception.Create('ID da conexão é obrigatório para exclusão.');
   FRepository.Delete(AId);
+end;
+
+procedure TManageConnectionsUseCase.Reorder(const AOrderedIds: TStrings);
+begin
+  if AOrderedIds <> nil then
+    FRepository.Reorder(AOrderedIds);
 end;
 
 end.

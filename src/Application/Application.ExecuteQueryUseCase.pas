@@ -16,7 +16,8 @@ type
       const ASession: IDatabaseSession;
       const ASQL: string;
       const AAutoCommit: Boolean = False;
-      const AFetchBatchSize: Integer = 100
+      const AFetchBatchSize: Integer = 100;
+      const AMemoryLimitBytes: Int64 = DEFAULT_RESULT_MEMORY_LIMIT_BYTES
     ): TQueryResult;
   end;
 
@@ -26,7 +27,8 @@ function TExecuteQueryUseCase.Execute(
   const ASession: IDatabaseSession;
   const ASQL: string;
   const AAutoCommit: Boolean;
-  const AFetchBatchSize: Integer
+  const AFetchBatchSize: Integer;
+  const AMemoryLimitBytes: Int64
 ): TQueryResult;
 begin
   if ASession = nil then
@@ -43,7 +45,7 @@ begin
   if not ASession.IsConnected then
     ASession.Connect;
 
-  Result := ASession.ExecuteSQL(ASQL, AAutoCommit, AFetchBatchSize);
+  Result := ASession.ExecuteSQL(ASQL, AAutoCommit, AFetchBatchSize, AMemoryLimitBytes);
 end;
 
 end.

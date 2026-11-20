@@ -6,102 +6,195 @@ object MainForm: TMainForm
   Caption = 'Multi-DB SQL Editor'
   ClientHeight = 700
   ClientWidth = 1140
+  Constraints.MinHeight = 520
+  Constraints.MinWidth = 760
+  Menu = MainMenu1
+  OnCloseQuery = FormCloseQuery
   OnCreate = FormCreate
   OnDestroy = FormDestroy
+  OnResize = FormResize
   Position = poScreenCenter
   LCLVersion = '3.0.0.0'
   object pnlLeft: TPanel
     Left = 0
     Height = 677
     Top = 0
-    Width = 260
+    Width = 280
     Align = alLeft
     BevelOuter = bvNone
     ClientHeight = 677
-    ClientWidth = 260
+    ClientWidth = 280
+    Constraints.MinWidth = 250
     TabOrder = 0
     object lblConnections: TLabel
       Left = 8
       Height = 15
       Top = 8
-      Width = 244
+      Width = 264
       Align = alTop
+      AutoSize = True
       BorderSpacing.Around = 8
       Caption = 'Conexões (duplo clique abre SQL)'
       Font.Style = [fsBold]
       ParentFont = False
+      WordWrap = True
     end
     object pnlConnActions: TPanel
       Left = 8
-      Height = 32
+      Height = 28
       Top = 31
-      Width = 244
+      Width = 264
       Align = alTop
+      AutoSize = True
       BevelOuter = bvNone
       BorderSpacing.Left = 8
       BorderSpacing.Right = 8
-      BorderSpacing.Bottom = 6
-      ClientHeight = 32
-      ClientWidth = 244
+      BorderSpacing.Bottom = 4
+      ChildSizing.HorizontalSpacing = 6
+      ChildSizing.EnlargeHorizontal = crsHomogenousChildResize
+      ChildSizing.ShrinkHorizontal = crsHomogenousChildResize
+      ChildSizing.Layout = cclLeftToRightThenTopToBottom
+      ChildSizing.ControlsPerLine = 3
+      ClientHeight = 28
+      ClientWidth = 264
       TabOrder = 0
       object btnNewConn: TButton
         Left = 0
         Height = 28
-        Top = 2
-        Width = 76
+        Top = 0
+        Width = 84
+        AutoSize = True
         Caption = 'Nova'
+        Constraints.MinHeight = 28
         TabOrder = 0
         OnClick = btnNewConnClick
       end
       object btnEditConn: TButton
-        Left = 84
+        Left = 90
         Height = 28
-        Top = 2
-        Width = 76
+        Top = 0
+        Width = 84
+        AutoSize = True
         Caption = 'Editar'
+        Constraints.MinHeight = 28
         TabOrder = 1
         OnClick = btnEditConnClick
       end
       object btnDeleteConn: TButton
-        Left = 168
+        Left = 180
         Height = 28
-        Top = 2
-        Width = 76
+        Top = 0
+        Width = 84
+        AutoSize = True
         Caption = 'Excluir'
+        Constraints.MinHeight = 28
         TabOrder = 2
         OnClick = btnDeleteConnClick
       end
     end
-    object pnlTreeFilter: TPanel
+    object pnlConnOrder: TPanel
       Left = 8
       Height = 26
-      Top = 69
-      Width = 244
+      Top = 63
+      Width = 264
       Align = alTop
+      AutoSize = True
       BevelOuter = bvNone
       BorderSpacing.Left = 8
       BorderSpacing.Right = 8
       BorderSpacing.Bottom = 6
+      ChildSizing.HorizontalSpacing = 6
+      ChildSizing.EnlargeHorizontal = crsScaleChilds
+      ChildSizing.ShrinkHorizontal = crsScaleChilds
+      ChildSizing.Layout = cclLeftToRightThenTopToBottom
+      ChildSizing.ControlsPerLine = 3
       ClientHeight = 26
-      ClientWidth = 244
+      ClientWidth = 264
       TabOrder = 1
+      object btnMoveConnUp: TButton
+        Left = 0
+        Height = 26
+        Hint = 'Mover conexão para cima (Alt+Cima)'
+        Top = 0
+        Width = 88
+        AutoSize = True
+        Caption = '▲ Subir'
+        Constraints.MinHeight = 26
+        Enabled = False
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 0
+        OnClick = btnMoveConnUpClick
+      end
+      object btnMoveConnDown: TButton
+        Left = 94
+        Height = 26
+        Hint = 'Mover conexão para baixo (Alt+Baixo)'
+        Top = 0
+        Width = 96
+        AutoSize = True
+        Caption = '▼ Descer'
+        Constraints.MinHeight = 26
+        Enabled = False
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 1
+        OnClick = btnMoveConnDownClick
+      end
+      object btnSortConns: TButton
+        Left = 196
+        Height = 26
+        Hint = 'Ordenar conexões alfabeticamente (A-Z / Z-A)'
+        Top = 0
+        Width = 68
+        AutoSize = True
+        Caption = 'A-Z'
+        Constraints.MinHeight = 26
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 2
+        OnClick = btnSortConnsClick
+      end
+    end
+    object pnlTreeFilter: TPanel
+      Left = 8
+      Height = 23
+      Top = 95
+      Width = 264
+      Align = alTop
+      AutoSize = True
+      BevelOuter = bvNone
+      BorderSpacing.Left = 8
+      BorderSpacing.Right = 8
+      BorderSpacing.Bottom = 6
+      ClientHeight = 23
+      ClientWidth = 264
+      TabOrder = 2
       object edtTreeFilter: TEdit
+        AnchorSideLeft.Control = pnlTreeFilter
+        AnchorSideTop.Control = pnlTreeFilter
+        AnchorSideRight.Control = btnClearFilter
         Left = 0
         Height = 23
-        Top = 1
-        Width = 216
-        Align = alClient
+        Top = 0
+        Width = 232
+        Anchors = [akTop, akLeft, akRight]
         BorderSpacing.Right = 4
         TabOrder = 0
         TextHint = 'Filtrar conexões, tabelas, views...'
         OnChange = edtTreeFilterChange
       end
       object btnClearFilter: TButton
-        Left = 220
-        Height = 26
+        AnchorSideTop.Control = edtTreeFilter
+        AnchorSideRight.Control = pnlTreeFilter
+        AnchorSideRight.Side = asrBottom
+        AnchorSideBottom.Control = edtTreeFilter
+        AnchorSideBottom.Side = asrBottom
+        Left = 236
+        Height = 23
         Top = 0
-        Width = 24
-        Align = alRight
+        Width = 28
+        Anchors = [akTop, akRight, akBottom]
         Caption = '×'
         TabOrder = 1
         OnClick = btnClearFilterClick
@@ -109,71 +202,152 @@ object MainForm: TMainForm
     end
     object tvConnections: TTreeView
       Left = 8
-      Height = 572
-      Top = 101
-      Width = 244
+      Height = 545
+      Top = 124
+      Width = 264
       Align = alClient
       BorderSpacing.Left = 8
       BorderSpacing.Right = 8
       BorderSpacing.Bottom = 8
+      DragMode = dmManual
+      HideSelection = False
+      PopupMenu = pmConnections
       ReadOnly = True
-      TabOrder = 2
+      TabOrder = 3
+      OnChange = tvConnectionsChange
       OnDblClick = tvConnectionsDblClick
+      OnDragDrop = tvConnectionsDragDrop
+      OnDragOver = tvConnectionsDragOver
       OnExpanding = tvConnectionsExpanding
+      OnKeyDown = tvConnectionsKeyDown
+      OnMouseDown = tvConnectionsMouseDown
     end
   end
   object Splitter1: TSplitter
-    Left = 260
+    Left = 280
     Height = 677
     Top = 0
-    Width = 5
+    Width = 6
+    MinSize = 250
+    ResizeStyle = rsUpdate
   end
   object pnlMain: TPanel
-    Left = 265
+    Left = 286
     Height = 677
     Top = 0
-    Width = 875
+    Width = 854
     Align = alClient
     BevelOuter = bvNone
     ClientHeight = 677
-    ClientWidth = 875
+    ClientWidth = 854
+    Constraints.MinWidth = 420
     TabOrder = 2
     object pnlEditorBar: TPanel
-      Left = 0
-      Height = 34
-      Top = 0
-      Width = 875
+      Left = 4
+      Height = 28
+      Top = 4
+      Width = 846
       Align = alTop
+      AutoSize = True
       BevelOuter = bvNone
-      ClientHeight = 34
-      ClientWidth = 875
+      BorderSpacing.Left = 4
+      BorderSpacing.Top = 4
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 4
+      ChildSizing.HorizontalSpacing = 6
+      ChildSizing.Layout = cclLeftToRightThenTopToBottom
+      ChildSizing.ControlsPerLine = 99
+      ClientHeight = 28
+      ClientWidth = 846
       TabOrder = 0
-      object btnNewTab: TButton
-        Left = 4
-        Height = 26
-        Top = 4
-        Width = 104
-        Caption = 'Nova Aba SQL'
+      object btnToggleSidebar: TButton
+        Left = 0
+        Height = 28
+        Hint = 'Ocultar ou exibir o painel de conexões'
+        Top = 0
+        Width = 76
+        AutoSize = True
+        Caption = '« Painel'
+        Constraints.MinHeight = 28
+        ParentShowHint = False
+        ShowHint = True
         TabOrder = 0
+        OnClick = btnToggleSidebarClick
+      end
+      object btnNewTab: TButton
+        Left = 82
+        Height = 28
+        Top = 0
+        Width = 104
+        AutoSize = True
+        Caption = 'Nova Aba SQL'
+        Constraints.MinHeight = 28
+        TabOrder = 1
         OnClick = btnNewTabClick
       end
       object btnCloseTab: TButton
-        Left = 114
-        Height = 26
-        Top = 4
+        Left = 192
+        Height = 28
+        Top = 0
         Width = 86
+        AutoSize = True
         Caption = 'Fechar Aba'
-        TabOrder = 1
+        Constraints.MinHeight = 28
+        TabOrder = 2
         OnClick = btnCloseTabClick
+      end
+      object btnMonitorDb: TButton
+        Left = 284
+        Height = 28
+        Hint = 'Abrir monitoramento em tempo real (conexões e transações)'
+        Top = 0
+        Width = 104
+        AutoSize = True
+        Caption = 'Monitorar BD'
+        Constraints.MinHeight = 28
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 3
+        OnClick = btnMonitorDbClick
+      end
+      object btnCompareDb: TButton
+        Left = 394
+        Height = 28
+        Hint = 'Comparar estruturas entre duas bases de dados e gerar script de atualização'
+        Top = 0
+        Width = 112
+        AutoSize = True
+        Caption = 'Comparar Bases'
+        Constraints.MinHeight = 28
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 4
+        OnClick = btnCompareDbClick
+      end
+      object btnScriptExec: TButton
+        Left = 512
+        Height = 28
+        Hint = 'Abrir Script Executive (Ctrl+F12) - executar vários scripts SQL estilo IBExpert'
+        Top = 0
+        Width = 118
+        AutoSize = True
+        Caption = 'Script Executive'
+        Constraints.MinHeight = 28
+        ParentShowHint = False
+        ShowHint = True
+        TabOrder = 5
+        OnClick = btnScriptExecClick
       end
     end
     object pgEditors: TPageControl
       Left = 0
-      Height = 643
-      Top = 34
-      Width = 875
+      Height = 641
+      Top = 36
+      Width = 854
       Align = alClient
+      Options = [nboShowCloseButtons]
       TabOrder = 1
+      OnCloseTabClicked = pgEditorsCloseTabClicked
     end
   end
   object StatusBar1: TStatusBar
@@ -183,5 +357,162 @@ object MainForm: TMainForm
     Width = 1140
     Panels = <>
     SimplePanel = True
+  end
+  object pmConnections: TPopupMenu
+    OnPopup = pmConnectionsPopup
+    Left = 128
+    Top = 264
+    object miOpenSqlTab: TMenuItem
+      Caption = 'Abrir Aba SQL'
+      OnClick = miOpenSqlTabClick
+    end
+    object miScriptExec: TMenuItem
+      Caption = 'Script Executive (Executar Scripts SQL)...'
+      OnClick = miScriptExecClick
+    end
+    object miMonitorDb: TMenuItem
+      Caption = 'Monitorar Banco (Conexões / Transações)'
+      OnClick = miMonitorDbClick
+    end
+    object miCompareDb: TMenuItem
+      Caption = 'Comparar esta Base...'
+      OnClick = miCompareDbClick
+    end
+    object miMaintenanceDb: TMenuItem
+      Caption = 'Backup / Restore / Correção...'
+      OnClick = miMaintenanceDbClick
+    end
+    object miSepObj: TMenuItem
+      Caption = '-'
+    end
+    object miEditObject: TMenuItem
+      Caption = 'Editar / Ver DDL'
+      OnClick = miEditObjectClick
+    end
+    object miViewObjectDDL: TMenuItem
+      Caption = 'Ver DDL (Código / Estrutura)'
+      OnClick = miViewObjectDDLClick
+    end
+    object miViewObjectData: TMenuItem
+      Caption = 'Consultar Dados (SELECT *)'
+      OnClick = miViewObjectDataClick
+    end
+    object miNewObject: TMenuItem
+      Caption = 'Novo Objeto...'
+      OnClick = miNewObjectClick
+    end
+    object miRefreshCategory: TMenuItem
+      Caption = 'Recarregar Lista'
+      OnClick = miRefreshCategoryClick
+    end
+    object miDropObject: TMenuItem
+      Caption = 'Excluir Objeto'
+      OnClick = miDropObjectClick
+    end
+    object miSep1: TMenuItem
+      Caption = '-'
+    end
+    object miDisconnectConn: TMenuItem
+      Caption = 'Desconectar'
+      OnClick = miDisconnectConnClick
+    end
+    object miEditConn: TMenuItem
+      Caption = 'Editar Conexão...'
+      OnClick = btnEditConnClick
+    end
+    object miDeleteConn: TMenuItem
+      Caption = 'Excluir Conexão'
+      OnClick = btnDeleteConnClick
+    end
+    object miSep2: TMenuItem
+      Caption = '-'
+    end
+    object miMoveConnUp: TMenuItem
+      Caption = 'Mover para Cima'
+      OnClick = btnMoveConnUpClick
+    end
+    object miMoveConnDown: TMenuItem
+      Caption = 'Mover para Baixo'
+      OnClick = btnMoveConnDownClick
+    end
+    object miSortAsc: TMenuItem
+      Caption = 'Ordenar A-Z'
+      OnClick = miSortAscClick
+    end
+    object miSortDesc: TMenuItem
+      Caption = 'Ordenar Z-A'
+      OnClick = miSortDescClick
+    end
+  end
+  object MainMenu1: TMainMenu
+    Left = 176
+    Top = 264
+    object miFileMenu: TMenuItem
+      Caption = '&Arquivo'
+      object miMenuNewTab: TMenuItem
+        Caption = 'Nova Aba SQL'
+        OnClick = btnNewTabClick
+      end
+      object miMenuNewScript: TMenuItem
+        Caption = 'Novo Executor de Script'
+        OnClick = btnScriptExecClick
+      end
+      object miMenuCloseTab: TMenuItem
+        Caption = 'Fechar Aba Atual'
+        OnClick = btnCloseTabClick
+      end
+      object miMenuFileSep: TMenuItem
+        Caption = '-'
+      end
+      object miMenuExit: TMenuItem
+        Caption = 'Sair'
+        OnClick = miExitClick
+      end
+    end
+    object miConnMenu: TMenuItem
+      Caption = '&Conexões'
+      object miMenuNewConn: TMenuItem
+        Caption = 'Nova Conexão...'
+        OnClick = btnNewConnClick
+      end
+      object miMenuEditConn: TMenuItem
+        Caption = 'Editar Conexão...'
+        OnClick = btnEditConnClick
+      end
+      object miMenuDeleteConn: TMenuItem
+        Caption = 'Excluir Conexão'
+        OnClick = btnDeleteConnClick
+      end
+    end
+    object miToolsMenu: TMenuItem
+      Caption = '&Ferramentas'
+      object miMenuScriptExec: TMenuItem
+        Caption = 'Script Executive (Executar Scripts SQL)...'
+        OnClick = btnScriptExecClick
+      end
+      object miMenuCompareDb: TMenuItem
+        Caption = 'Database Comparer (Comparar Bases)...'
+        OnClick = btnCompareDbClick
+      end
+      object miMenuMonitorDb: TMenuItem
+        Caption = 'Monitor do Banco de Dados (Conexões / Transações)'
+        OnClick = btnMonitorDbClick
+      end
+      object miMenuToolsSep: TMenuItem
+        Caption = '-'
+      end
+      object miMenuBackupDb: TMenuItem
+        Caption = 'Backup de Base de Dados...'
+        OnClick = miToolBackupClick
+      end
+      object miMenuRestoreDb: TMenuItem
+        Caption = 'Restore de Base de Dados...'
+        OnClick = miToolRestoreClick
+      end
+      object miMenuRepairDb: TMenuItem
+        Caption = 'Correção / Manutenção de Base Corrompida...'
+        OnClick = miToolRepairClick
+      end
+    end
   end
 end

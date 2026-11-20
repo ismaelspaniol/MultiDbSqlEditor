@@ -13,6 +13,14 @@ uses
 type
   { TConnectionForm }
   TConnectionForm = class(TForm)
+    pnlContent: TPanel;
+    pnlButtons: TPanel;
+    pnlRowCreds: TPanel;
+    pnlUser: TPanel;
+    pnlPass: TPanel;
+    pnlRowOpts: TPanel;
+    pnlCharset: TPanel;
+    pnlRole: TPanel;
     lblName: TLabel;
     edtName: TEdit;
     lblDbType: TLabel;
@@ -152,6 +160,9 @@ begin
   begin
     lblDatabase.Caption := 'Arquivo (.fdb) ou Alias:';
     btnBrowseDb.Visible := True;
+    edtDatabase.AnchorSideRight.Control := btnBrowseDb;
+    edtDatabase.AnchorSideRight.Side := asrLeft;
+    edtDatabase.BorderSpacing.Right := 6;
     lblCharset.Enabled := True;
     cbCharset.Enabled := True;
     lblRole.Enabled := True;
@@ -165,6 +176,9 @@ begin
   begin
     lblDatabase.Caption := 'Nome do Banco (Database):';
     btnBrowseDb.Visible := False;
+    edtDatabase.AnchorSideRight.Control := pnlContent;
+    edtDatabase.AnchorSideRight.Side := asrBottom;
+    edtDatabase.BorderSpacing.Right := 0;
     lblCharset.Enabled := False;
     cbCharset.Enabled := False;
     lblRole.Enabled := False;

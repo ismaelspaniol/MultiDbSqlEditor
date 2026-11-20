@@ -17,12 +17,18 @@ type
     ProfileId: string;
     SqlText: string;
     BatchSize: string;
+    MemoryLimit: string;
     AutoCommit: Boolean;
   end;
 
   TWorkspaceState = class
   public
     ActiveTabIndex: Integer;
+    WindowWidth: Integer;
+    WindowHeight: Integer;
+    WindowMaximized: Boolean;
+    LeftPanelWidth: Integer;
+    LeftPanelVisible: Boolean;
     Tabs: array of TWorkspaceTabState;
     constructor Create;
     procedure AddTab(const ATab: TWorkspaceTabState);
@@ -44,6 +50,11 @@ constructor TWorkspaceState.Create;
 begin
   inherited Create;
   ActiveTabIndex := 0;
+  WindowWidth := 0;
+  WindowHeight := 0;
+  WindowMaximized := False;
+  LeftPanelWidth := 0;
+  LeftPanelVisible := True;
   SetLength(Tabs, 0);
 end;
 
@@ -91,6 +102,11 @@ begin
           Exit;
         Root := TJSONObject(Data);
         Result.ActiveTabIndex := Root.Get('activeTabIndex', 0);
+        Result.WindowWidth := Root.Get('windowWidth', 0);
+        Result.WindowHeight := Root.Get('windowHeight', 0);
+        Result.WindowMaximized := Root.Get('windowMaximized', False);
+        Result.LeftPanelWidth := Root.Get('leftPanelWidth', 0);
+        Result.LeftPanelVisible := Root.Get('leftPanelVisible', True);
 
         Arr := Root.Get('tabs', TJSONArray(nil));
         if Arr <> nil then
@@ -104,6 +120,7 @@ begin
               Tab.ProfileId := TabObj.Get('profileId', '');
               Tab.SqlText := TabObj.Get('sql', '');
               Tab.BatchSize := TabObj.Get('batchSize', '100');
+              Tab.MemoryLimit := TabObj.Get('memoryLimit', '128 MB');
               Tab.AutoCommit := TabObj.Get('autoCommit', False);
               Result.AddTab(Tab);
             end;
@@ -138,6 +155,11 @@ begin
   Root := TJSONObject.Create;
   try
     Root.Add('activeTabIndex', AState.ActiveTabIndex);
+    Root.Add('windowWidth', AState.WindowWidth);
+    Root.Add('windowHeight', AState.WindowHeight);
+    Root.Add('windowMaximized', AState.WindowMaximized);
+    Root.Add('leftPanelWidth', AState.LeftPanelWidth);
+    Root.Add('leftPanelVisible', AState.LeftPanelVisible);
     Arr := TJSONArray.Create;
     for I := 0 to High(AState.Tabs) do
     begin
@@ -146,6 +168,7 @@ begin
       TabObj.Add('profileId', AState.Tabs[I].ProfileId);
       TabObj.Add('sql', AState.Tabs[I].SqlText);
       TabObj.Add('batchSize', AState.Tabs[I].BatchSize);
+      TabObj.Add('memoryLimit', AState.Tabs[I].MemoryLimit);
       TabObj.Add('autoCommit', AState.Tabs[I].AutoCommit);
       Arr.Add(TabObj);
     end;

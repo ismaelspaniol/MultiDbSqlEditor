@@ -1,0 +1,404 @@
+object DatabaseMonitorFrame: TDatabaseMonitorFrame
+  Left = 0
+  Height = 560
+  Top = 0
+  Width = 960
+  ClientHeight = 560
+  ClientWidth = 960
+  TabOrder = 0
+  object pnlToolbar: TFlowPanel
+    Left = 4
+    Height = 34
+    Top = 4
+    Width = 952
+    Align = alTop
+    AutoSize = True
+    AutoWrap = True
+    BevelOuter = bvNone
+    BorderSpacing.Left = 4
+    BorderSpacing.Top = 4
+    BorderSpacing.Right = 4
+    BorderSpacing.Bottom = 4
+    ControlList = <    
+      item
+        Control = lblConn
+        WrapAfter = waAvoid
+      end    
+      item
+        Control = cbConnection
+      end    
+      item
+        Control = btnRefresh
+      end    
+      item
+        Control = chkAutoRefresh
+      end    
+      item
+        Control = cbInterval
+      end    
+      item
+        Control = lblFilter
+        WrapAfter = waAvoid
+      end    
+      item
+        Control = edtFilter
+      end    
+      item
+        Control = lblStatus
+      end>
+    FlowLayout = tlCenter
+    FlowStyle = fsLeftRightTopBottom
+    TabOrder = 0
+    OnResize = pnlToolbarResize
+    object lblConn: TLabel
+      Left = 2
+      Height = 15
+      Top = 7
+      Width = 51
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Conexão:'
+    end
+    object cbConnection: TComboBox
+      Left = 59
+      Height = 23
+      Top = 3
+      Width = 210
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      ItemHeight = 15
+      Style = csDropDownList
+      TabOrder = 0
+      OnChange = cbConnectionChange
+    end
+    object btnRefresh: TButton
+      Left = 275
+      Height = 26
+      Top = 2
+      Width = 104
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Atualizar Agora'
+      Constraints.MinHeight = 26
+      TabOrder = 1
+      OnClick = btnRefreshClick
+    end
+    object chkAutoRefresh: TCheckBox
+      Left = 385
+      Height = 19
+      Top = 5
+      Width = 96
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Auto-atualizar'
+      Checked = True
+      State = cbChecked
+      TabOrder = 2
+      OnChange = chkAutoRefreshChange
+    end
+    object cbInterval: TComboBox
+      Left = 487
+      Height = 23
+      Top = 3
+      Width = 68
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      ItemHeight = 15
+      ItemIndex = 1
+      Items.Strings = (
+        '2s'
+        '3s'
+        '5s'
+        '10s'
+        '30s'
+      )
+      Style = csDropDownList
+      TabOrder = 3
+      Text = '3s'
+      OnChange = cbIntervalChange
+    end
+    object lblFilter: TLabel
+      Left = 561
+      Height = 15
+      Top = 7
+      Width = 31
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Filtro:'
+    end
+    object edtFilter: TEdit
+      Left = 598
+      Height = 23
+      Top = 3
+      Width = 160
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 6
+      BorderSpacing.Bottom = 2
+      TabOrder = 4
+      TextHint = 'Usuário, IP, SQL...'
+      OnChange = edtFilterChange
+    end
+    object lblStatus: TLabel
+      Left = 766
+      Height = 15
+      Top = 7
+      Width = 70
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Aguardando...'
+      Font.Style = [fsBold]
+      ParentFont = False
+      ShowAccelChar = False
+    end
+  end
+  object pgMonitor: TPageControl
+    Left = 0
+    Height = 518
+    Top = 42
+    Width = 960
+    ActivePage = tsConnections
+    Align = alClient
+    TabIndex = 0
+    TabOrder = 1
+    object tsConnections: TTabSheet
+      Caption = 'Conexões'
+      ClientHeight = 490
+      ClientWidth = 952
+      object pnlConnBar: TPanel
+        Left = 4
+        Height = 28
+        Top = 4
+        Width = 944
+        Align = alTop
+        AutoSize = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 4
+        ChildSizing.HorizontalSpacing = 6
+        ChildSizing.Layout = cclLeftToRightThenTopToBottom
+        ChildSizing.ControlsPerLine = 99
+        ClientHeight = 28
+        ClientWidth = 944
+        TabOrder = 0
+        object btnKillConnection: TButton
+          Left = 0
+          Height = 26
+          Top = 0
+          Width = 190
+          AutoSize = True
+          Caption = 'Encerrar Conexão Selecionada'
+          Constraints.MinHeight = 26
+          Enabled = False
+          TabOrder = 0
+          OnClick = btnKillConnectionClick
+        end
+      end
+      object grdConnections: TStringGrid
+        Left = 0
+        Height = 454
+        Top = 36
+        Width = 952
+        Align = alClient
+        ColCount = 9
+        DefaultColWidth = 120
+        DefaultRowHeight = 22
+        FixedCols = 0
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+        RowCount = 1
+        TabOrder = 1
+        OnPrepareCanvas = grdConnectionsPrepareCanvas
+        OnSelection = grdConnectionsSelection
+      end
+    end
+    object tsTransactions: TTabSheet
+      Caption = 'Transações'
+      ClientHeight = 490
+      ClientWidth = 952
+      object pnlTxBar: TPanel
+        Left = 4
+        Height = 28
+        Top = 4
+        Width = 944
+        Align = alTop
+        AutoSize = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 4
+        ChildSizing.HorizontalSpacing = 6
+        ChildSizing.Layout = cclLeftToRightThenTopToBottom
+        ChildSizing.ControlsPerLine = 99
+        ClientHeight = 28
+        ClientWidth = 944
+        TabOrder = 0
+        object btnCancelTxQuery: TButton
+          Left = 0
+          Height = 26
+          Top = 0
+          Width = 130
+          AutoSize = True
+          Caption = 'Cancelar Consulta'
+          Constraints.MinHeight = 26
+          Enabled = False
+          TabOrder = 0
+          OnClick = btnCancelTxQueryClick
+        end
+        object btnKillTx: TButton
+          Left = 136
+          Height = 26
+          Top = 0
+          Width = 200
+          AutoSize = True
+          Caption = 'Encerrar Transação (Rollback)'
+          Constraints.MinHeight = 26
+          Enabled = False
+          TabOrder = 1
+          OnClick = btnKillTxClick
+        end
+      end
+      object grdTransactions: TStringGrid
+        Left = 0
+        Height = 338
+        Top = 36
+        Width = 952
+        Align = alClient
+        ColCount = 10
+        DefaultColWidth = 120
+        DefaultRowHeight = 22
+        FixedCols = 0
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+        RowCount = 1
+        TabOrder = 1
+        OnSelection = grdTransactionsSelection
+      end
+      object splTx: TSplitter
+        Cursor = crVSplit
+        Left = 0
+        Height = 6
+        Top = 374
+        Width = 952
+        Align = alBottom
+        MinSize = 48
+        ResizeAnchor = akBottom
+        ResizeStyle = rsUpdate
+      end
+      object memTxSql: TMemo
+        Left = 0
+        Height = 110
+        Top = 380
+        Width = 952
+        Align = alBottom
+        Font.Height = -12
+        Font.Name = 'Consolas'
+        ParentFont = False
+        ReadOnly = True
+        ScrollBars = ssBoth
+        TabOrder = 3
+      end
+    end
+    object tsStatements: TTabSheet
+      Caption = 'Consultas Ativas'
+      ClientHeight = 490
+      ClientWidth = 952
+      object pnlStmtBar: TPanel
+        Left = 4
+        Height = 28
+        Top = 4
+        Width = 944
+        Align = alTop
+        AutoSize = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 4
+        ChildSizing.HorizontalSpacing = 6
+        ChildSizing.Layout = cclLeftToRightThenTopToBottom
+        ChildSizing.ControlsPerLine = 99
+        ClientHeight = 28
+        ClientWidth = 944
+        TabOrder = 0
+        object btnCancelStmt: TButton
+          Left = 0
+          Height = 26
+          Top = 0
+          Width = 190
+          AutoSize = True
+          Caption = 'Cancelar Consulta Selecionada'
+          Constraints.MinHeight = 26
+          Enabled = False
+          TabOrder = 0
+          OnClick = btnCancelStmtClick
+        end
+      end
+      object grdStatements: TStringGrid
+        Left = 0
+        Height = 338
+        Top = 36
+        Width = 952
+        Align = alClient
+        ColCount = 9
+        DefaultColWidth = 120
+        DefaultRowHeight = 22
+        FixedCols = 0
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+        RowCount = 1
+        TabOrder = 1
+        OnSelection = grdStatementsSelection
+      end
+      object splStmt: TSplitter
+        Cursor = crVSplit
+        Left = 0
+        Height = 6
+        Top = 374
+        Width = 952
+        Align = alBottom
+        MinSize = 48
+        ResizeAnchor = akBottom
+        ResizeStyle = rsUpdate
+      end
+      object memStmtSql: TMemo
+        Left = 0
+        Height = 110
+        Top = 380
+        Width = 952
+        Align = alBottom
+        Font.Height = -12
+        Font.Name = 'Consolas'
+        ParentFont = False
+        ReadOnly = True
+        ScrollBars = ssBoth
+        TabOrder = 3
+      end
+    end
+  end
+  object tmrRefresh: TTimer
+    Enabled = False
+    Interval = 3000
+    OnTimer = tmrRefreshTimer
+    Left = 840
+    Top = 8
+  end
+end

@@ -1,0 +1,1384 @@
+object TableEditorFrame: TTableEditorFrame
+  Left = 0
+  Height = 640
+  Top = 0
+  Width = 980
+  ClientHeight = 640
+  ClientWidth = 980
+  TabOrder = 0
+  object pnlHeader: TPanel
+    Left = 8
+    Height = 32
+    Top = 8
+    Width = 964
+    Align = alTop
+    AutoSize = True
+    BevelOuter = bvNone
+    BorderSpacing.Around = 8
+    ClientHeight = 32
+    ClientWidth = 964
+    TabOrder = 0
+    object lblTableTitle: TLabel
+      Left = 0
+      Height = 32
+      Top = 0
+      Width = 602
+      Align = alClient
+      Caption = 'Tabela: ---'
+      Font.Height = -14
+      Font.Style = [fsBold]
+      Layout = tlCenter
+      ParentFont = False
+      ShowAccelChar = False
+    end
+    object btnRefresh: TButton
+      Left = 610
+      Height = 32
+      Top = 0
+      Width = 96
+      Align = alRight
+      AutoSize = True
+      BorderSpacing.Left = 8
+      Caption = 'Atualizar'
+      Constraints.MinHeight = 28
+      Constraints.MinWidth = 90
+      TabOrder = 0
+      OnClick = btnRefreshClick
+    end
+    object btnViewData: TButton
+      Left = 714
+      Height = 32
+      Top = 0
+      Width = 104
+      Align = alRight
+      AutoSize = True
+      BorderSpacing.Left = 8
+      Caption = 'Ver Dados'
+      Constraints.MinHeight = 28
+      Constraints.MinWidth = 96
+      TabOrder = 1
+      OnClick = btnViewDataClick
+    end
+    object btnOpenInSql: TButton
+      Left = 826
+      Height = 32
+      Top = 0
+      Width = 138
+      Align = alRight
+      AutoSize = True
+      BorderSpacing.Left = 8
+      Caption = 'Abrir no Editor SQL'
+      Constraints.MinHeight = 28
+      Constraints.MinWidth = 130
+      TabOrder = 2
+      OnClick = btnOpenInSqlClick
+    end
+  end
+  object pgTable: TPageControl
+    Left = 8
+    Height = 560
+    Top = 48
+    Width = 964
+    ActivePage = tsFields
+    Align = alClient
+    BorderSpacing.Left = 8
+    BorderSpacing.Right = 8
+    TabIndex = 0
+    TabOrder = 1
+    OnChange = pgTableChange
+    object tsFields: TTabSheet
+      Caption = 'Campos'
+      ClientHeight = 532
+      ClientWidth = 956
+      object pnlFieldsBar: TFlowPanel
+        Left = 4
+        Height = 32
+        Top = 4
+        Width = 948
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 4
+        ControlList = <        
+          item
+            Control = btnAddField
+          end        
+          item
+            Control = btnEditField
+          end        
+          item
+            Control = btnDropField
+          end        
+          item
+            Control = btnFieldDeps
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 0
+        object btnAddField: TButton
+          Left = 2
+          Height = 26
+          Top = 2
+          Width = 136
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 6
+          BorderSpacing.Bottom = 2
+          Caption = '+ Adicionar Campo'
+          Constraints.MinHeight = 26
+          TabOrder = 0
+          OnClick = btnAddFieldClick
+        end
+        object btnEditField: TButton
+          Left = 144
+          Height = 26
+          Top = 2
+          Width = 110
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 6
+          BorderSpacing.Bottom = 2
+          Caption = 'Editar Campo'
+          Constraints.MinHeight = 26
+          Enabled = False
+          TabOrder = 1
+          OnClick = btnEditFieldClick
+        end
+        object btnDropField: TButton
+          Left = 260
+          Height = 26
+          Top = 2
+          Width = 110
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 6
+          BorderSpacing.Bottom = 2
+          Caption = 'Excluir Campo'
+          Constraints.MinHeight = 26
+          Enabled = False
+          TabOrder = 2
+          OnClick = btnDropFieldClick
+        end
+        object btnFieldDeps: TButton
+          Left = 376
+          Height = 26
+          Top = 2
+          Width = 116
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 6
+          BorderSpacing.Bottom = 2
+          Caption = 'Onde é Usado'
+          Constraints.MinHeight = 26
+          Enabled = False
+          TabOrder = 3
+          OnClick = btnFieldDepsClick
+        end
+      end
+      object grdFields: TStringGrid
+        Left = 0
+        Height = 492
+        Top = 40
+        Width = 956
+        Align = alClient
+        ColCount = 8
+        DefaultColWidth = 110
+        DefaultRowHeight = 22
+        FixedCols = 0
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+        PopupMenu = pmFields
+        RowCount = 1
+        TabOrder = 1
+        OnDblClick = grdFieldsDblClick
+        OnSelection = grdFieldsSelection
+      end
+    end
+    object tsConstraints: TTabSheet
+      Caption = 'Constraints'
+      ClientHeight = 532
+      ClientWidth = 956
+      object pgConstraints: TPageControl
+        Left = 4
+        Height = 524
+        Top = 4
+        Width = 948
+        ActivePage = tsConstraintPK
+        Align = alClient
+        BorderSpacing.Around = 4
+        TabIndex = 0
+        TabOrder = 0
+        object tsConstraintPK: TTabSheet
+          Caption = 'Primary Key'
+          ClientHeight = 496
+          ClientWidth = 940
+          object grdPK: TStringGrid
+            Left = 0
+            Height = 496
+            Top = 0
+            Width = 940
+            Align = alClient
+            ColCount = 2
+            DefaultColWidth = 280
+            DefaultRowHeight = 22
+            FixedCols = 0
+            Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+            RowCount = 1
+            TabOrder = 0
+          end
+        end
+        object tsConstraintFK: TTabSheet
+          Caption = 'Foreign Keys'
+          ClientHeight = 496
+          ClientWidth = 940
+          object lblFKHint: TLabel
+            Left = 6
+            Height = 15
+            Top = 6
+            Width = 928
+            Align = alTop
+            BorderSpacing.Around = 6
+            Caption = 'Dica: dê duplo clique em uma Foreign Key para abrir a tabela referenciada em uma nova aba.'
+            Font.Style = [fsItalic]
+            ParentFont = False
+            ShowAccelChar = False
+          end
+          object grdFK: TStringGrid
+            Left = 0
+            Height = 469
+            Top = 27
+            Width = 940
+            Align = alClient
+            ColCount = 6
+            DefaultColWidth = 150
+            DefaultRowHeight = 22
+            FixedCols = 0
+            Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+            RowCount = 1
+            TabOrder = 0
+            OnDblClick = grdFKDblClick
+          end
+        end
+        object tsConstraintUnique: TTabSheet
+          Caption = 'Unique'
+          ClientHeight = 496
+          ClientWidth = 940
+          object grdUnique: TStringGrid
+            Left = 0
+            Height = 496
+            Top = 0
+            Width = 940
+            Align = alClient
+            ColCount = 2
+            DefaultColWidth = 300
+            DefaultRowHeight = 22
+            FixedCols = 0
+            Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+            RowCount = 1
+            TabOrder = 0
+          end
+        end
+        object tsConstraintChecks: TTabSheet
+          Caption = 'Checks'
+          ClientHeight = 496
+          ClientWidth = 940
+          object grdChecks: TStringGrid
+            Left = 0
+            Height = 496
+            Top = 0
+            Width = 940
+            Align = alClient
+            ColCount = 2
+            DefaultColWidth = 320
+            DefaultRowHeight = 22
+            FixedCols = 0
+            Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+            RowCount = 1
+            TabOrder = 0
+          end
+        end
+      end
+    end
+    object tsIndexes: TTabSheet
+      Caption = 'Índices'
+      ClientHeight = 532
+      ClientWidth = 956
+      object pnlIndexesBar: TFlowPanel
+        Left = 4
+        Height = 32
+        Top = 4
+        Width = 948
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 4
+        ControlList = <        
+          item
+            Control = btnAddIndex
+          end        
+          item
+            Control = btnToggleIndexActive
+          end        
+          item
+            Control = btnDropIndex
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 0
+        object btnAddIndex: TButton
+          Left = 2
+          Height = 26
+          Top = 2
+          Width = 120
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 6
+          BorderSpacing.Bottom = 2
+          Caption = '+ Novo Índice'
+          Constraints.MinHeight = 26
+          TabOrder = 0
+          OnClick = btnAddIndexClick
+        end
+        object btnToggleIndexActive: TButton
+          Left = 128
+          Height = 26
+          Top = 2
+          Width = 130
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 6
+          BorderSpacing.Bottom = 2
+          Caption = 'Ativar / Inativar'
+          Constraints.MinHeight = 26
+          Enabled = False
+          TabOrder = 1
+          OnClick = btnToggleIndexActiveClick
+        end
+        object btnDropIndex: TButton
+          Left = 264
+          Height = 26
+          Top = 2
+          Width = 110
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 6
+          BorderSpacing.Bottom = 2
+          Caption = 'Excluir Índice'
+          Constraints.MinHeight = 26
+          Enabled = False
+          TabOrder = 2
+          OnClick = btnDropIndexClick
+        end
+      end
+      object grdIndexes: TStringGrid
+        Left = 0
+        Height = 492
+        Top = 40
+        Width = 956
+        Align = alClient
+        ColCount = 6
+        DefaultColWidth = 130
+        DefaultRowHeight = 22
+        FixedCols = 0
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+        RowCount = 1
+        TabOrder = 1
+        OnSelection = grdIndexesSelection
+      end
+    end
+    object tsTriggers: TTabSheet
+      Caption = 'Triggers'
+      ClientHeight = 532
+      ClientWidth = 956
+      object pnlTriggersLeft: TPanel
+        Left = 0
+        Height = 532
+        Top = 0
+        Width = 285
+        Align = alLeft
+        BevelOuter = bvNone
+        ClientHeight = 532
+        ClientWidth = 285
+        Constraints.MinWidth = 200
+        TabOrder = 0
+        object pnlTriggersListBar: TFlowPanel
+          Left = 4
+          Height = 32
+          Top = 4
+          Width = 277
+          Align = alTop
+          AutoSize = True
+          AutoWrap = True
+          BevelOuter = bvNone
+          BorderSpacing.Around = 4
+          ControlList = <          
+            item
+              Control = btnNewTrigger
+            end          
+            item
+              Control = btnToggleTriggerActive
+            end          
+            item
+              Control = btnDropTrigger
+            end>
+          FlowLayout = tlCenter
+          FlowStyle = fsLeftRightTopBottom
+          TabOrder = 0
+          object btnNewTrigger: TButton
+            Left = 2
+            Height = 26
+            Top = 2
+            Width = 72
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = '+ Nova'
+            Constraints.MinHeight = 26
+            TabOrder = 0
+            OnClick = btnNewTriggerClick
+          end
+          object btnToggleTriggerActive: TButton
+            Left = 78
+            Height = 26
+            Top = 2
+            Width = 112
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Ativar / Inativar'
+            Constraints.MinHeight = 26
+            Enabled = False
+            TabOrder = 1
+            OnClick = btnToggleTriggerActiveClick
+          end
+          object btnDropTrigger: TButton
+            Left = 194
+            Height = 26
+            Top = 2
+            Width = 68
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Excluir'
+            Constraints.MinHeight = 26
+            Enabled = False
+            TabOrder = 2
+            OnClick = btnDropTriggerClick
+          end
+        end
+        object tvTriggers: TTreeView
+          Left = 4
+          Height = 488
+          Top = 40
+          Width = 277
+          Align = alClient
+          BorderSpacing.Left = 4
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 4
+          HideSelection = False
+          PopupMenu = pmTriggers
+          ReadOnly = True
+          RightClickSelect = True
+          RowSelect = True
+          TabOrder = 1
+          OnChange = tvTriggersChange
+          OnChanging = tvTriggersChanging
+          OnCustomDrawItem = tvTriggersCustomDrawItem
+          OnDblClick = tvTriggersDblClick
+          OnMouseDown = tvTriggersMouseDown
+        end
+      end
+      object splTriggers: TSplitter
+        Left = 285
+        Height = 532
+        Top = 0
+        Width = 6
+        MinSize = 180
+        ResizeStyle = rsUpdate
+      end
+      object pnlTriggerRight: TPanel
+        Left = 291
+        Height = 532
+        Top = 0
+        Width = 665
+        Align = alClient
+        BevelOuter = bvNone
+        ClientHeight = 532
+        ClientWidth = 665
+        TabOrder = 2
+        object pnlTriggerToolbar: TFlowPanel
+          Left = 4
+          Height = 32
+          Top = 4
+          Width = 657
+          Align = alTop
+          AutoSize = True
+          AutoWrap = True
+          BevelOuter = bvNone
+          BorderSpacing.Around = 4
+          ControlList = <          
+            item
+              Control = btnCompileTrigger
+            end          
+            item
+              Control = btnReloadTrigger
+            end          
+            item
+              Control = btnCopyTriggerDDL
+            end          
+            item
+              Control = btnOpenTriggerFunction
+            end          
+            item
+              Control = btnOpenTriggerInTab
+            end          
+            item
+              Control = lblTriggerState
+            end>
+          FlowLayout = tlCenter
+          FlowStyle = fsLeftRightTopBottom
+          TabOrder = 0
+          OnResize = pnlTriggerToolbarResize
+          object btnCompileTrigger: TButton
+            Left = 2
+            Height = 26
+            Top = 2
+            Width = 114
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Compilar (F9)'
+            Constraints.MinHeight = 26
+            Enabled = False
+            TabOrder = 0
+            OnClick = btnCompileTriggerClick
+          end
+          object btnReloadTrigger: TButton
+            Left = 120
+            Height = 26
+            Top = 2
+            Width = 90
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Recarregar'
+            Constraints.MinHeight = 26
+            Enabled = False
+            TabOrder = 1
+            OnClick = btnReloadTriggerClick
+          end
+          object btnCopyTriggerDDL: TButton
+            Left = 214
+            Height = 26
+            Top = 2
+            Width = 92
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Copiar DDL'
+            Constraints.MinHeight = 26
+            Enabled = False
+            TabOrder = 2
+            OnClick = btnCopyTriggerDDLClick
+          end
+          object btnOpenTriggerFunction: TButton
+            Left = 310
+            Height = 26
+            Top = 2
+            Width = 104
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Abrir Função'
+            Constraints.MinHeight = 26
+            TabOrder = 3
+            Visible = False
+            OnClick = btnOpenTriggerFunctionClick
+          end
+          object btnOpenTriggerInTab: TButton
+            Left = 418
+            Height = 26
+            Top = 2
+            Width = 100
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 6
+            BorderSpacing.Bottom = 2
+            Caption = 'Abrir em Aba'
+            Constraints.MinHeight = 26
+            Enabled = False
+            TabOrder = 4
+            OnClick = btnOpenTriggerInTabClick
+          end
+          object lblTriggerState: TLabel
+            Left = 524
+            Height = 15
+            Top = 8
+            Width = 130
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 4
+            Caption = 'Nenhuma trigger selecionada'
+            Font.Style = [fsBold]
+            ParentFont = False
+            ShowAccelChar = False
+          end
+        end
+        object pnlTriggerMeta: TPanel
+          Left = 4
+          Height = 96
+          Top = 40
+          Width = 657
+          Align = alTop
+          AutoSize = True
+          BevelOuter = bvLowered
+          BorderSpacing.Left = 4
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 4
+          ClientHeight = 96
+          ClientWidth = 657
+          TabOrder = 1
+          object pnlTriggerMetaRow1: TFlowPanel
+            Left = 4
+            Height = 28
+            Top = 4
+            Width = 649
+            Align = alTop
+            AutoSize = True
+            AutoWrap = True
+            BevelOuter = bvNone
+            BorderSpacing.Around = 4
+            ControlList = <            
+              item
+                Control = lblTrigName
+                WrapAfter = waAvoid
+              end            
+              item
+                Control = edtTriggerName
+              end            
+              item
+                Control = chkTriggerActive
+              end            
+              item
+                Control = lblTrigPos
+                WrapAfter = waAvoid
+              end            
+              item
+                Control = spnTriggerPos
+              end>
+            FlowLayout = tlCenter
+            FlowStyle = fsLeftRightTopBottom
+            TabOrder = 0
+            object lblTrigName: TLabel
+              Left = 2
+              Height = 15
+              Top = 6
+              Width = 40
+              Anchors = []
+              AutoSize = True
+              BorderSpacing.Left = 2
+              BorderSpacing.Right = 4
+              Caption = 'Nome:'
+            end
+            object edtTriggerName: TEdit
+              Left = 46
+              Height = 23
+              Top = 2
+              Width = 220
+              Anchors = []
+              BorderSpacing.Right = 10
+              TabOrder = 0
+              OnChange = TriggerMetaChanged
+            end
+            object chkTriggerActive: TCheckBox
+              Left = 276
+              Height = 19
+              Top = 4
+              Width = 54
+              Anchors = []
+              BorderSpacing.Right = 12
+              Caption = 'Ativa'
+              Checked = True
+              State = cbChecked
+              TabOrder = 1
+              OnClick = TriggerMetaChanged
+            end
+            object lblTrigPos: TLabel
+              Left = 342
+              Height = 15
+              Top = 6
+              Width = 50
+              Anchors = []
+              AutoSize = True
+              BorderSpacing.Right = 4
+              Caption = 'Posição:'
+            end
+            object spnTriggerPos: TSpinEdit
+              Left = 396
+              Height = 23
+              Top = 2
+              Width = 72
+              Anchors = []
+              MaxValue = 32767
+              TabOrder = 2
+              OnChange = TriggerMetaChanged
+            end
+          end
+          object pnlTriggerMetaRow2: TFlowPanel
+            Left = 4
+            Height = 28
+            Top = 36
+            Width = 649
+            Align = alTop
+            AutoSize = True
+            AutoWrap = True
+            BevelOuter = bvNone
+            BorderSpacing.Left = 4
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 4
+            ControlList = <            
+              item
+                Control = lblTrigTiming
+                WrapAfter = waAvoid
+              end            
+              item
+                Control = cbTriggerTiming
+              end            
+              item
+                Control = chkTrigInsert
+              end            
+              item
+                Control = chkTrigUpdate
+              end            
+              item
+                Control = chkTrigDelete
+              end>
+            FlowLayout = tlCenter
+            FlowStyle = fsLeftRightTopBottom
+            TabOrder = 1
+            object lblTrigTiming: TLabel
+              Left = 2
+              Height = 15
+              Top = 6
+              Width = 58
+              Anchors = []
+              AutoSize = True
+              BorderSpacing.Left = 2
+              BorderSpacing.Right = 4
+              Caption = 'Momento:'
+            end
+            object cbTriggerTiming: TComboBox
+              Left = 64
+              Height = 23
+              Top = 2
+              Width = 100
+              Anchors = []
+              BorderSpacing.Right = 12
+              ItemHeight = 15
+              ItemIndex = 0
+              Items.Strings = (
+                'BEFORE'
+                'AFTER'
+              )
+              Style = csDropDownList
+              TabOrder = 0
+              Text = 'BEFORE'
+              OnChange = TriggerMetaChanged
+            end
+            object chkTrigInsert: TCheckBox
+              Left = 176
+              Height = 19
+              Top = 4
+              Width = 64
+              Anchors = []
+              BorderSpacing.Right = 10
+              Caption = 'INSERT'
+              Checked = True
+              State = cbChecked
+              TabOrder = 1
+              OnClick = TriggerMetaChanged
+            end
+            object chkTrigUpdate: TCheckBox
+              Left = 250
+              Height = 19
+              Top = 4
+              Width = 68
+              Anchors = []
+              BorderSpacing.Right = 10
+              Caption = 'UPDATE'
+              TabOrder = 2
+              OnClick = TriggerMetaChanged
+            end
+            object chkTrigDelete: TCheckBox
+              Left = 328
+              Height = 19
+              Top = 4
+              Width = 66
+              Anchors = []
+              Caption = 'DELETE'
+              TabOrder = 3
+              OnClick = TriggerMetaChanged
+            end
+          end
+          object lblTriggerHeaderPreview: TLabel
+            Left = 6
+            Height = 24
+            Top = 68
+            Width = 645
+            Align = alTop
+            BorderSpacing.Left = 6
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 6
+            BorderSpacing.Bottom = 4
+            Caption = '-- Selecione uma trigger à esquerda ou clique em "+ Nova" para criar uma trigger.'
+            Font.Color = clGrayText
+            Font.Height = -12
+            Font.Name = 'Consolas'
+            ParentFont = False
+            ShowAccelChar = False
+            WordWrap = True
+          end
+        end
+        object SynEditTrigger: TSynEdit
+          Left = 4
+          Height = 300
+          Top = 140
+          Width = 657
+          Align = alClient
+          BorderSpacing.Left = 4
+          BorderSpacing.Right = 4
+          Font.Height = -14
+          Font.Name = 'Consolas'
+          Font.Pitch = fpFixed
+          Font.Quality = fqCleartype
+          ParentColor = False
+          ParentFont = False
+          TabOrder = 2
+          OnKeyDown = SynEditTriggerKeyDown
+          Gutter.Width = 52
+          Gutter.MouseActions = <>
+          RightGutter.Width = 0
+          RightGutter.MouseActions = <>
+          Highlighter = SynSQLSynTrigger
+          Options = [eoAutoIndent, eoBracketHighlight, eoGroupUndo, eoScrollPastEol, eoSmartTabs, eoTabsToSpaces, eoTrimTrailingSpaces]
+          RightEdge = 120
+          ScrollBars = ssBoth
+          TabWidth = 2
+          OnChange = SynEditTriggerChange
+        end
+        object splTriggerLog: TSplitter
+          Cursor = crVSplit
+          Left = 0
+          Height = 6
+          Top = 440
+          Width = 665
+          Align = alBottom
+          MinSize = 40
+          ResizeAnchor = akBottom
+          ResizeStyle = rsUpdate
+        end
+        object memTriggerLog: TMemo
+          Left = 4
+          Height = 82
+          Top = 446
+          Width = 657
+          Align = alBottom
+          BorderSpacing.Left = 4
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 4
+          Font.Height = -12
+          Font.Name = 'Consolas'
+          ParentFont = False
+          ReadOnly = True
+          ScrollBars = ssBoth
+          TabOrder = 4
+        end
+      end
+    end
+    object tsData: TTabSheet
+      Caption = 'Dados'
+      ClientHeight = 532
+      ClientWidth = 956
+      object pnlDataBar: TFlowPanel
+        Left = 4
+        Height = 32
+        Top = 4
+        Width = 948
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 4
+        ControlList = <        
+          item
+            Control = btnRefreshData
+          end        
+          item
+            Control = lblDataLimit
+            WrapAfter = waAvoid
+          end        
+          item
+            Control = cbDataLimit
+          end        
+          item
+            Control = lblDataWhere
+            WrapAfter = waAvoid
+          end        
+          item
+            Control = edtDataWhere
+          end        
+          item
+            Control = btnOpenDataInSql
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 0
+        object btnRefreshData: TButton
+          Left = 2
+          Height = 26
+          Top = 2
+          Width = 114
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Atualizar Dados'
+          Constraints.MinHeight = 26
+          TabOrder = 0
+          OnClick = btnRefreshDataClick
+        end
+        object lblDataLimit: TLabel
+          Left = 124
+          Height = 15
+          Top = 7
+          Width = 42
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Right = 4
+          Caption = 'Limite:'
+        end
+        object cbDataLimit: TComboBox
+          Left = 170
+          Height = 23
+          Top = 3
+          Width = 86
+          Anchors = []
+          BorderSpacing.Right = 10
+          ItemHeight = 15
+          ItemIndex = 1
+          Items.Strings = (
+            '100'
+            '500'
+            '1000'
+            '5000'
+            'Todos'
+          )
+          Style = csDropDownList
+          TabOrder = 1
+          Text = '500'
+          OnChange = cbDataLimitChange
+        end
+        object lblDataWhere: TLabel
+          Left = 266
+          Height = 15
+          Top = 7
+          Width = 44
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Right = 4
+          Caption = 'WHERE:'
+        end
+        object edtDataWhere: TEdit
+          Left = 314
+          Height = 23
+          Top = 3
+          Width = 260
+          Anchors = []
+          BorderSpacing.Right = 8
+          TabOrder = 2
+          TextHint = 'Ex.: ID > 0 ORDER BY 1 (Enter aplica)'
+          OnKeyDown = edtDataWhereKeyDown
+        end
+        object btnOpenDataInSql: TButton
+          Left = 582
+          Height = 26
+          Top = 2
+          Width = 132
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Top = 2
+          BorderSpacing.Bottom = 2
+          Caption = 'Abrir no Editor SQL'
+          Constraints.MinHeight = 26
+          TabOrder = 3
+          OnClick = btnOpenDataInSqlClick
+        end
+      end
+    end
+    object tsDependencies: TTabSheet
+      Caption = 'Dependências'
+      ClientHeight = 532
+      ClientWidth = 956
+      object pnlDepFilter: TFlowPanel
+        Left = 4
+        Height = 32
+        Top = 4
+        Width = 948
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 4
+        ControlList = <        
+          item
+            Control = lblDepScope
+            WrapAfter = waAvoid
+          end        
+          item
+            Control = cbDepField
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 0
+        object lblDepScope: TLabel
+          Left = 2
+          Height = 15
+          Top = 7
+          Width = 140
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 6
+          BorderSpacing.Bottom = 2
+          Caption = 'Escopo das dependências:'
+          Font.Style = [fsBold]
+          ParentFont = False
+        end
+        object cbDepField: TComboBox
+          Left = 148
+          Height = 23
+          Top = 3
+          Width = 280
+          Anchors = []
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 6
+          BorderSpacing.Bottom = 2
+          ItemHeight = 15
+          Style = csDropDownList
+          TabOrder = 0
+          OnChange = cbDepFieldChange
+        end
+      end
+      object pnlDepUsedBy: TPanel
+        Left = 0
+        Height = 220
+        Top = 40
+        Width = 956
+        Align = alTop
+        BevelOuter = bvNone
+        ClientHeight = 220
+        ClientWidth = 956
+        Constraints.MinHeight = 100
+        TabOrder = 1
+        object lblDepUsedBy: TLabel
+          Left = 6
+          Height = 15
+          Top = 6
+          Width = 944
+          Align = alTop
+          BorderSpacing.Around = 6
+          Caption = 'Objetos que dependem desta tabela (Usada por — duplo clique para abrir):'
+          Font.Style = [fsBold]
+          ParentFont = False
+          ShowAccelChar = False
+        end
+        object grdDepUsedBy: TStringGrid
+          Left = 0
+          Height = 193
+          Top = 27
+          Width = 956
+          Align = alClient
+          ColCount = 2
+          DefaultColWidth = 300
+          DefaultRowHeight = 22
+          FixedCols = 0
+          Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+          RowCount = 1
+          TabOrder = 0
+          OnDblClick = grdDepUsedByDblClick
+        end
+      end
+      object splDeps: TSplitter
+        Cursor = crVSplit
+        Left = 0
+        Height = 6
+        Top = 260
+        Width = 956
+        Align = alTop
+        MinSize = 80
+        ResizeAnchor = akTop
+        ResizeStyle = rsUpdate
+      end
+      object pnlDepUses: TPanel
+        Left = 0
+        Height = 266
+        Top = 266
+        Width = 956
+        Align = alClient
+        BevelOuter = bvNone
+        ClientHeight = 266
+        ClientWidth = 956
+        Constraints.MinHeight = 100
+        TabOrder = 3
+        object lblDepUses: TLabel
+          Left = 6
+          Height = 15
+          Top = 6
+          Width = 944
+          Align = alTop
+          BorderSpacing.Around = 6
+          Caption = 'Esta tabela depende de (Referencia — duplo clique para abrir):'
+          Font.Style = [fsBold]
+          ParentFont = False
+          ShowAccelChar = False
+        end
+        object grdDepUses: TStringGrid
+          Left = 0
+          Height = 239
+          Top = 27
+          Width = 956
+          Align = alClient
+          ColCount = 2
+          DefaultColWidth = 300
+          DefaultRowHeight = 22
+          FixedCols = 0
+          Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+          RowCount = 1
+          TabOrder = 0
+          OnDblClick = grdDepUsesDblClick
+        end
+      end
+    end
+    object tsDDL: TTabSheet
+      Caption = 'DDL'
+      ClientHeight = 532
+      ClientWidth = 956
+      object pnlDDLBar: TFlowPanel
+        Left = 4
+        Height = 32
+        Top = 4
+        Width = 948
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 4
+        ControlList = <        
+          item
+            Control = btnCopyTableDDL
+          end        
+          item
+            Control = btnOpenDDLInSql
+          end        
+          item
+            Control = chkIncludeTriggersDDL
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 0
+        object btnCopyTableDDL: TButton
+          Left = 2
+          Height = 26
+          Top = 2
+          Width = 100
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Copiar DDL'
+          Constraints.MinHeight = 26
+          TabOrder = 0
+          OnClick = btnCopyTableDDLClick
+        end
+        object btnOpenDDLInSql: TButton
+          Left = 110
+          Height = 26
+          Top = 2
+          Width = 148
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 12
+          BorderSpacing.Bottom = 2
+          Caption = 'Abrir no Editor SQL'
+          Constraints.MinHeight = 26
+          TabOrder = 1
+          OnClick = btnOpenDDLInSqlClick
+        end
+        object chkIncludeTriggersDDL: TCheckBox
+          Left = 270
+          Height = 19
+          Top = 5
+          Width = 110
+          Anchors = []
+          Caption = 'Incluir Triggers'
+          Checked = True
+          State = cbChecked
+          TabOrder = 2
+          OnClick = chkIncludeTriggersDDLClick
+        end
+      end
+      object SynEditDDL: TSynEdit
+        Left = 0
+        Height = 492
+        Top = 40
+        Width = 956
+        Align = alClient
+        Font.Height = -14
+        Font.Name = 'Consolas'
+        Font.Pitch = fpFixed
+        Font.Quality = fqCleartype
+        ParentColor = False
+        ParentFont = False
+        TabOrder = 1
+        Gutter.Width = 55
+        Gutter.MouseActions = <>
+        RightGutter.Width = 0
+        RightGutter.MouseActions = <>
+        Highlighter = SynSQLSynDDL
+        Options = [eoAutoIndent, eoBracketHighlight, eoGroupUndo, eoScrollPastEol, eoSmartTabs, eoTabsToSpaces, eoTrimTrailingSpaces]
+        ReadOnly = True
+        RightEdge = 120
+        ScrollBars = ssBoth
+        TabWidth = 2
+      end
+    end
+  end
+  object pnlBottom: TPanel
+    Left = 8
+    Height = 24
+    Top = 610
+    Width = 964
+    Align = alBottom
+    AutoSize = True
+    BevelOuter = bvNone
+    BorderSpacing.Left = 8
+    BorderSpacing.Top = 4
+    BorderSpacing.Right = 8
+    BorderSpacing.Bottom = 6
+    ClientHeight = 24
+    ClientWidth = 964
+    TabOrder = 2
+    object lblStatus: TLabel
+      Left = 0
+      Height = 24
+      Top = 0
+      Width = 964
+      Align = alClient
+      Caption = 'Pronto.'
+      Layout = tlCenter
+      ShowAccelChar = False
+    end
+  end
+  object pmFields: TPopupMenu
+    OnPopup = pmFieldsPopup
+    Left = 240
+    Top = 180
+    object miFieldDeps: TMenuItem
+      Caption = 'Ver onde este campo é utilizado'
+      OnClick = btnFieldDepsClick
+    end
+    object miFieldSep1: TMenuItem
+      Caption = '-'
+    end
+    object miFieldEdit: TMenuItem
+      Caption = 'Editar Campo...'
+      OnClick = btnEditFieldClick
+    end
+    object miFieldDrop: TMenuItem
+      Caption = 'Excluir Campo'
+      OnClick = btnDropFieldClick
+    end
+  end
+  object pmTriggers: TPopupMenu
+    OnPopup = pmTriggersPopup
+    Left = 180
+    Top = 300
+    object miTrigNewInCategory: TMenuItem
+      Caption = 'Nova Trigger neste Evento'
+      OnClick = btnNewTriggerClick
+    end
+    object miTrigToggleActive: TMenuItem
+      Caption = 'Ativar / Inativar Trigger'
+      OnClick = btnToggleTriggerActiveClick
+    end
+    object miTrigOpenTab: TMenuItem
+      Caption = 'Abrir em Aba Separada'
+      OnClick = btnOpenTriggerInTabClick
+    end
+    object miTrigSep1: TMenuItem
+      Caption = '-'
+    end
+    object miTrigDrop: TMenuItem
+      Caption = 'Excluir Trigger'
+      OnClick = btnDropTriggerClick
+    end
+  end
+  object SynSQLSynDDL: TSynSQLSyn
+    Enabled = False
+    SQLDialect = sqlFirebird40
+    Left = 400
+    Top = 180
+  end
+  object SynSQLSynTrigger: TSynSQLSyn
+    Enabled = False
+    SQLDialect = sqlFirebird40
+    Left = 540
+    Top = 180
+  end
+end

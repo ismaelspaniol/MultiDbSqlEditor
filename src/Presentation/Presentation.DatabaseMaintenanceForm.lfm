@@ -1,0 +1,1491 @@
+object DatabaseMaintenanceForm: TDatabaseMaintenanceForm
+  Left = 220
+  Height = 670
+  Top = 100
+  Width = 940
+  BorderIcons = [biSystemMenu, biMaximize]
+  BorderStyle = bsSizeable
+  Caption = 'Backup, Restore e Correção de Base de Dados'
+  ClientHeight = 670
+  ClientWidth = 940
+  Constraints.MinHeight = 540
+  Constraints.MinWidth = 760
+  Position = poOwnerFormCenter
+  OnCloseQuery = FormCloseQuery
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  object pnlConnSelect: TFlowPanel
+    Left = 8
+    Height = 36
+    Top = 8
+    Width = 924
+    Align = alTop
+    AutoSize = True
+    AutoWrap = True
+    BevelOuter = bvNone
+    BorderSpacing.Around = 8
+    ControlList = <    
+      item
+        Control = lblConnection
+        WrapAfter = waAvoid
+      end    
+      item
+        Control = cbConnection
+      end    
+      item
+        Control = lblFbBackend
+        WrapAfter = waAvoid
+      end    
+      item
+        Control = cbFbBackend
+      end    
+      item
+        Control = lblToolPath
+        WrapAfter = waAvoid
+      end    
+      item
+        Control = edtToolPath
+      end    
+      item
+        Control = btnBrowseTool
+      end>
+    FlowLayout = tlCenter
+    FlowStyle = fsLeftRightTopBottom
+    TabOrder = 0
+    OnResize = PanelsResize
+    object lblConnection: TLabel
+      Left = 2
+      Height = 15
+      Top = 8
+      Width = 54
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Conexão:'
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+    object cbConnection: TComboBox
+      Left = 62
+      Height = 23
+      Top = 4
+      Width = 220
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 8
+      BorderSpacing.Bottom = 2
+      ItemHeight = 15
+      Style = csDropDownList
+      TabOrder = 0
+      OnChange = cbConnectionChange
+    end
+    object lblFbBackend: TLabel
+      Left = 290
+      Height = 15
+      Top = 8
+      Width = 36
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Modo:'
+    end
+    object cbFbBackend: TComboBox
+      Left = 332
+      Height = 23
+      Top = 4
+      Width = 240
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 8
+      BorderSpacing.Bottom = 2
+      ItemHeight = 15
+      ItemIndex = 0
+      Items.Strings = (
+        'Firebird Services API (Nativo / Remoto)'
+        'Ferramentas CLI Locais (gbak / gfix)'
+      )
+      Style = csDropDownList
+      TabOrder = 1
+      Text = 'Firebird Services API (Nativo / Remoto)'
+      OnChange = cbFbBackendChange
+    end
+    object lblToolPath: TLabel
+      Left = 580
+      Height = 15
+      Top = 8
+      Width = 66
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = 'Ferramenta:'
+    end
+    object edtToolPath: TEdit
+      Left = 652
+      Height = 23
+      Top = 4
+      Width = 175
+      Anchors = []
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      TabOrder = 2
+      TextHint = '(auto)'
+      OnChange = InputsChanged
+    end
+    object btnBrowseTool: TButton
+      Left = 833
+      Height = 25
+      Top = 3
+      Width = 34
+      Anchors = []
+      AutoSize = True
+      BorderSpacing.Left = 2
+      BorderSpacing.Top = 2
+      BorderSpacing.Right = 4
+      BorderSpacing.Bottom = 2
+      Caption = '...'
+      Constraints.MinHeight = 24
+      Constraints.MinWidth = 30
+      TabOrder = 3
+      OnClick = btnBrowseToolClick
+    end
+  end
+  object pgMaintenance: TPageControl
+    Left = 8
+    Height = 260
+    Top = 52
+    Width = 924
+    ActivePage = tsBackup
+    Align = alTop
+    BorderSpacing.Left = 8
+    BorderSpacing.Right = 8
+    Constraints.MinHeight = 210
+    TabIndex = 0
+    TabOrder = 1
+    OnChange = pgMaintenanceChange
+    object tsBackup: TTabSheet
+      Caption = 'Backup'
+      ClientHeight = 232
+      ClientWidth = 916
+      object pnlBkpFile: TFlowPanel
+        Left = 6
+        Height = 32
+        Top = 6
+        Width = 904
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 6
+        ControlList = <        
+          item
+            Control = lblBkpFile
+            WrapAfter = waAvoid
+          end        
+          item
+            Control = edtBkpFile
+          end        
+          item
+            Control = btnBrowseBkpFile
+          end        
+          item
+            Control = chkBkpVerbose
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 0
+        OnResize = PanelsResize
+        object lblBkpFile: TLabel
+          Left = 2
+          Height = 15
+          Top = 7
+          Width = 114
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          Caption = 'Arquivo de Destino:'
+        end
+        object edtBkpFile: TEdit
+          Left = 122
+          Height = 23
+          Top = 3
+          Width = 420
+          Anchors = []
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          TabOrder = 0
+          TextHint = '/caminho/para/backup.fbk ou backup.dump'
+          OnChange = InputsChanged
+        end
+        object btnBrowseBkpFile: TButton
+          Left = 548
+          Height = 25
+          Top = 2
+          Width = 86
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Escolher...'
+          Constraints.MinHeight = 24
+          TabOrder = 1
+          OnClick = btnBrowseBkpFileClick
+        end
+        object chkBkpVerbose: TCheckBox
+          Left = 642
+          Height = 19
+          Top = 5
+          Width = 128
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          Caption = 'Log Detalhado (-v)'
+          Checked = True
+          State = cbChecked
+          TabOrder = 2
+          OnClick = InputsChanged
+        end
+      end
+      object pnlFbBackupOpts: TFlowPanel
+        Left = 6
+        Height = 28
+        Top = 44
+        Width = 904
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 6
+        ControlList = <        
+          item
+            Control = chkFbBkpIgnoreChecksums
+          end        
+          item
+            Control = chkFbBkpIgnoreLimbo
+          end        
+          item
+            Control = chkFbBkpMetadataOnly
+          end        
+          item
+            Control = chkFbBkpNoGc
+          end        
+          item
+            Control = chkFbBkpNonTransportable
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 1
+        OnResize = PanelsResize
+        object chkFbBkpIgnoreChecksums: TCheckBox
+          Left = 2
+          Height = 19
+          Top = 4
+          Width = 148
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Ignorar Checksums (-ig)'
+          TabOrder = 0
+          OnClick = InputsChanged
+        end
+        object chkFbBkpIgnoreLimbo: TCheckBox
+          Left = 158
+          Height = 19
+          Top = 4
+          Width = 114
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Ignorar Limbo (-l)'
+          TabOrder = 1
+          OnClick = InputsChanged
+        end
+        object chkFbBkpMetadataOnly: TCheckBox
+          Left = 280
+          Height = 19
+          Top = 4
+          Width = 148
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Apenas Metadados (-m)'
+          TabOrder = 2
+          OnClick = InputsChanged
+        end
+        object chkFbBkpNoGc: TCheckBox
+          Left = 436
+          Height = 19
+          Top = 4
+          Width = 144
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Sem Garbage Collect (-g)'
+          TabOrder = 3
+          OnClick = InputsChanged
+        end
+        object chkFbBkpNonTransportable: TCheckBox
+          Left = 588
+          Height = 19
+          Top = 4
+          Width = 140
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Não Transportável (-nt)'
+          TabOrder = 4
+          OnClick = InputsChanged
+        end
+      end
+      object pnlPgBackupOpts: TFlowPanel
+        Left = 6
+        Height = 30
+        Top = 78
+        Width = 904
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 6
+        ControlList = <        
+          item
+            Control = lblPgFormat
+            WrapAfter = waAvoid
+          end        
+          item
+            Control = cbPgBkpFormat
+          end        
+          item
+            Control = chkPgBkpSchemaOnly
+          end        
+          item
+            Control = chkPgBkpDataOnly
+          end        
+          item
+            Control = chkPgBkpNoOwner
+          end        
+          item
+            Control = chkPgBkpClean
+          end        
+          item
+            Control = chkPgBkpIfExists
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 2
+        Visible = False
+        OnResize = PanelsResize
+        object lblPgFormat: TLabel
+          Left = 2
+          Height = 15
+          Top = 6
+          Width = 52
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          Caption = 'Formato:'
+        end
+        object cbPgBkpFormat: TComboBox
+          Left = 58
+          Height = 23
+          Top = 2
+          Width = 175
+          Anchors = []
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          ItemHeight = 15
+          ItemIndex = 0
+          Items.Strings = (
+            'Custom (-F c)'
+            'SQL Plano (-F p)'
+            'Diretório (-F d)'
+            'Tar (-F t)'
+          )
+          Style = csDropDownList
+          TabOrder = 0
+          Text = 'Custom (-F c)'
+          OnChange = InputsChanged
+        end
+        object chkPgBkpSchemaOnly: TCheckBox
+          Left = 241
+          Height = 19
+          Top = 4
+          Width = 114
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Só Estrutura (-s)'
+          TabOrder = 1
+          OnClick = InputsChanged
+        end
+        object chkPgBkpDataOnly: TCheckBox
+          Left = 363
+          Height = 19
+          Top = 4
+          Width = 104
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Só Dados (-a)'
+          TabOrder = 2
+          OnClick = InputsChanged
+        end
+        object chkPgBkpNoOwner: TCheckBox
+          Left = 475
+          Height = 19
+          Top = 4
+          Width = 108
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Sem Owner (-O)'
+          Checked = True
+          State = cbChecked
+          TabOrder = 3
+          OnClick = InputsChanged
+        end
+        object chkPgBkpClean: TCheckBox
+          Left = 591
+          Height = 19
+          Top = 4
+          Width = 84
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Clean (-c)'
+          TabOrder = 4
+          OnClick = InputsChanged
+        end
+        object chkPgBkpIfExists: TCheckBox
+          Left = 683
+          Height = 19
+          Top = 4
+          Width = 80
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          Caption = '--if-exists'
+          TabOrder = 5
+          OnClick = InputsChanged
+        end
+      end
+      object pnlBkpRun: TFlowPanel
+        Left = 6
+        Height = 36
+        Top = 114
+        Width = 904
+        Align = alTop
+        AutoSize = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 6
+        ControlList = <        
+          item
+            Control = btnStartBackup
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 3
+        object btnStartBackup: TButton
+          Left = 2
+          Height = 30
+          Top = 3
+          Width = 150
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          Caption = 'Executar Backup'
+          Constraints.MinHeight = 30
+          Constraints.MinWidth = 140
+          TabOrder = 0
+          OnClick = btnStartBackupClick
+        end
+      end
+    end
+    object tsRestore: TTabSheet
+      Caption = 'Restore'
+      ClientHeight = 232
+      ClientWidth = 916
+      object pnlResFiles: TFlowPanel
+        Left = 6
+        Height = 32
+        Top = 6
+        Width = 904
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 6
+        ControlList = <        
+          item
+            Control = lblResInput
+            WrapAfter = waAvoid
+          end        
+          item
+            Control = edtResInput
+          end        
+          item
+            Control = btnBrowseResInput
+          end        
+          item
+            Control = lblResTarget
+            WrapAfter = waAvoid
+          end        
+          item
+            Control = edtResTarget
+          end        
+          item
+            Control = chkResVerbose
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 0
+        OnResize = PanelsResize
+        object lblResInput: TLabel
+          Left = 2
+          Height = 15
+          Top = 7
+          Width = 96
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          Caption = 'Arquivo Backup:'
+        end
+        object edtResInput: TEdit
+          Left = 104
+          Height = 23
+          Top = 3
+          Width = 270
+          Anchors = []
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          TabOrder = 0
+          TextHint = '/caminho/backup.fbk ou .dump/.sql'
+          OnChange = InputsChanged
+        end
+        object btnBrowseResInput: TButton
+          Left = 380
+          Height = 25
+          Top = 2
+          Width = 86
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Escolher...'
+          Constraints.MinHeight = 24
+          TabOrder = 1
+          OnClick = btnBrowseResInputClick
+        end
+        object lblResTarget: TLabel
+          Left = 474
+          Height = 15
+          Top = 7
+          Width = 86
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          Caption = 'Base Destino:'
+        end
+        object edtResTarget: TEdit
+          Left = 566
+          Height = 23
+          Top = 3
+          Width = 220
+          Anchors = []
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 6
+          BorderSpacing.Bottom = 2
+          TabOrder = 2
+          TextHint = '(caminho ou nome do banco)'
+          OnChange = InputsChanged
+        end
+        object chkResVerbose: TCheckBox
+          Left = 794
+          Height = 19
+          Top = 5
+          Width = 106
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          Caption = 'Log Detalhado'
+          Checked = True
+          State = cbChecked
+          TabOrder = 3
+          OnClick = InputsChanged
+        end
+      end
+      object pnlFbRestoreOpts: TFlowPanel
+        Left = 6
+        Height = 32
+        Top = 44
+        Width = 904
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 6
+        ControlList = <        
+          item
+            Control = rbFbResCreate
+          end        
+          item
+            Control = rbFbResReplace
+          end        
+          item
+            Control = chkFbResDeactivateIdx
+          end        
+          item
+            Control = chkFbResNoValidity
+          end        
+          item
+            Control = chkFbResNoShadow
+          end        
+          item
+            Control = chkFbResOneAtATime
+          end        
+          item
+            Control = lblFbPageSize
+            WrapAfter = waAvoid
+          end        
+          item
+            Control = cbFbPageSize
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 1
+        OnResize = PanelsResize
+        object rbFbResCreate: TRadioButton
+          Left = 2
+          Height = 19
+          Top = 6
+          Width = 122
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Criar Nova (-c)'
+          Checked = True
+          TabOrder = 0
+          TabStop = True
+          OnClick = InputsChanged
+        end
+        object rbFbResReplace: TRadioButton
+          Left = 132
+          Height = 19
+          Top = 6
+          Width = 152
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Sobrescrever (-rep)'
+          TabOrder = 1
+          OnClick = InputsChanged
+        end
+        object chkFbResDeactivateIdx: TCheckBox
+          Left = 292
+          Height = 19
+          Top = 6
+          Width = 134
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Desativar Índices (-i)'
+          TabOrder = 2
+          OnClick = InputsChanged
+        end
+        object chkFbResNoValidity: TCheckBox
+          Left = 434
+          Height = 19
+          Top = 6
+          Width = 136
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Sem Validações (-n)'
+          TabOrder = 3
+          OnClick = InputsChanged
+        end
+        object chkFbResNoShadow: TCheckBox
+          Left = 578
+          Height = 19
+          Top = 6
+          Width = 114
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Sem Shadow (-k)'
+          TabOrder = 4
+          OnClick = InputsChanged
+        end
+        object chkFbResOneAtATime: TCheckBox
+          Left = 700
+          Height = 19
+          Top = 6
+          Width = 134
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Commit/Tabela (-o)'
+          TabOrder = 5
+          OnClick = InputsChanged
+        end
+        object lblFbPageSize: TLabel
+          Left = 2
+          Height = 15
+          Top = 30
+          Width = 60
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          Caption = 'Page Size:'
+        end
+        object cbFbPageSize: TComboBox
+          Left = 66
+          Height = 23
+          Top = 26
+          Width = 96
+          Anchors = []
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          ItemHeight = 15
+          ItemIndex = 0
+          Items.Strings = (
+            'Padrão'
+            '4096'
+            '8192'
+            '16384'
+            '32768'
+          )
+          Style = csDropDownList
+          TabOrder = 6
+          Text = 'Padrão'
+          OnChange = InputsChanged
+        end
+      end
+      object pnlPgRestoreOpts: TFlowPanel
+        Left = 6
+        Height = 28
+        Top = 82
+        Width = 904
+        Align = alTop
+        AutoSize = True
+        AutoWrap = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 6
+        ControlList = <        
+          item
+            Control = chkPgResCreateDb
+          end        
+          item
+            Control = chkPgResClean
+          end        
+          item
+            Control = chkPgResIfExists
+          end        
+          item
+            Control = chkPgResNoOwner
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 2
+        Visible = False
+        OnResize = PanelsResize
+        object chkPgResCreateDb: TCheckBox
+          Left = 2
+          Height = 19
+          Top = 4
+          Width = 114
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Criar Banco (-C)'
+          TabOrder = 0
+          OnClick = InputsChanged
+        end
+        object chkPgResClean: TCheckBox
+          Left = 124
+          Height = 19
+          Top = 4
+          Width = 84
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = 'Clean (-c)'
+          TabOrder = 1
+          OnClick = InputsChanged
+        end
+        object chkPgResIfExists: TCheckBox
+          Left = 216
+          Height = 19
+          Top = 4
+          Width = 80
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 2
+          Caption = '--if-exists'
+          TabOrder = 2
+          OnClick = InputsChanged
+        end
+        object chkPgResNoOwner: TCheckBox
+          Left = 304
+          Height = 19
+          Top = 4
+          Width = 108
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          Caption = 'Sem Owner (-O)'
+          Checked = True
+          State = cbChecked
+          TabOrder = 3
+          OnClick = InputsChanged
+        end
+      end
+      object pnlResRun: TFlowPanel
+        Left = 6
+        Height = 36
+        Top = 116
+        Width = 904
+        Align = alTop
+        AutoSize = True
+        BevelOuter = bvNone
+        BorderSpacing.Around = 6
+        ControlList = <        
+          item
+            Control = btnStartRestore
+          end>
+        FlowLayout = tlCenter
+        FlowStyle = fsLeftRightTopBottom
+        TabOrder = 3
+        object btnStartRestore: TButton
+          Left = 2
+          Height = 30
+          Top = 3
+          Width = 150
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Left = 2
+          BorderSpacing.Top = 2
+          BorderSpacing.Right = 4
+          BorderSpacing.Bottom = 2
+          Caption = 'Executar Restore'
+          Constraints.MinHeight = 30
+          Constraints.MinWidth = 140
+          TabOrder = 0
+          OnClick = btnStartRestoreClick
+        end
+      end
+    end
+    object tsRepair: TTabSheet
+      Caption = 'Correção / Manutenção'
+      ClientHeight = 232
+      ClientWidth = 916
+      object pnlFbRepair: TPanel
+        Left = 0
+        Height = 232
+        Top = 0
+        Width = 916
+        Align = alClient
+        BevelOuter = bvNone
+        ClientHeight = 232
+        ClientWidth = 916
+        TabOrder = 0
+        object lblFbRecoveryGuide: TLabel
+          Left = 8
+          Height = 30
+          Top = 6
+          Width = 900
+          Align = alTop
+          AutoSize = True
+          BorderSpacing.Left = 8
+          BorderSpacing.Top = 6
+          BorderSpacing.Right = 8
+          BorderSpacing.Bottom = 4
+          Caption = 'Fluxo seguro para base Firebird corrompida: 1) Faça uma cópia do arquivo .fdb ou Backup de Emergência (-g -ig -l); 2) Valide a estrutura (-v -n ou -v -full); 3) Execute -mend caso haja páginas corrompidas; 4) Execute Backup + Restore para um novo arquivo.'
+          Font.Style = [fsBold]
+          ParentFont = False
+          WordWrap = True
+        end
+        object pnlFbRepairOpts: TFlowPanel
+          Left = 6
+          Height = 32
+          Top = 42
+          Width = 904
+          Align = alTop
+          AutoSize = True
+          AutoWrap = True
+          BevelOuter = bvNone
+          BorderSpacing.Around = 6
+          ControlList = <          
+            item
+              Control = lblFbRepairAction
+              WrapAfter = waAvoid
+            end          
+            item
+              Control = cbFbRepairAction
+            end          
+            item
+              Control = chkFbRepairIgnoreCs
+            end          
+            item
+              Control = lblLimboTx
+              WrapAfter = waAvoid
+            end          
+            item
+              Control = edtLimboTxId
+            end>
+          FlowLayout = tlCenter
+          FlowStyle = fsLeftRightTopBottom
+          TabOrder = 0
+          OnResize = PanelsResize
+          object lblFbRepairAction: TLabel
+            Left = 2
+            Height = 15
+            Top = 7
+            Width = 60
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Comando:'
+          end
+          object cbFbRepairAction: TComboBox
+            Left = 68
+            Height = 23
+            Top = 3
+            Width = 430
+            Anchors = []
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 8
+            BorderSpacing.Bottom = 2
+            ItemHeight = 15
+            Style = csDropDownList
+            TabOrder = 0
+            OnChange = cbFbRepairActionChange
+          end
+          object chkFbRepairIgnoreCs: TCheckBox
+            Left = 506
+            Height = 19
+            Top = 5
+            Width = 148
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 8
+            BorderSpacing.Bottom = 2
+            Caption = 'Ignorar Checksums (-ignore)'
+            TabOrder = 1
+            OnClick = InputsChanged
+          end
+          object lblLimboTx: TLabel
+            Left = 662
+            Height = 15
+            Top = 7
+            Width = 74
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'ID Limbo:'
+          end
+          object edtLimboTxId: TEdit
+            Left = 742
+            Height = 23
+            Top = 3
+            Width = 84
+            Anchors = []
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            TabOrder = 2
+            Text = 'all'
+            OnChange = InputsChanged
+          end
+        end
+        object pnlFbRepairActions: TFlowPanel
+          Left = 6
+          Height = 36
+          Top = 80
+          Width = 904
+          Align = alTop
+          AutoSize = True
+          AutoWrap = True
+          BevelOuter = bvNone
+          BorderSpacing.Around = 6
+          ControlList = <          
+            item
+              Control = btnStartRepair
+            end          
+            item
+              Control = btnEmergencyBackupPreset
+            end>
+          FlowLayout = tlCenter
+          FlowStyle = fsLeftRightTopBottom
+          TabOrder = 1
+          OnResize = PanelsResize
+          object btnStartRepair: TButton
+            Left = 2
+            Height = 30
+            Top = 3
+            Width = 196
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 8
+            BorderSpacing.Bottom = 2
+            Caption = 'Executar Comando de Correção'
+            Constraints.MinHeight = 30
+            TabOrder = 0
+            OnClick = btnStartRepairClick
+          end
+          object btnEmergencyBackupPreset: TButton
+            Left = 206
+            Height = 30
+            Top = 3
+            Width = 250
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Preparar Backup de Emergência (-g -ig -l)'
+            Constraints.MinHeight = 30
+            TabOrder = 1
+            OnClick = btnEmergencyBackupPresetClick
+          end
+        end
+      end
+      object pnlPgRepair: TPanel
+        Left = 0
+        Height = 232
+        Top = 0
+        Width = 916
+        Align = alClient
+        BevelOuter = bvNone
+        ClientHeight = 232
+        ClientWidth = 916
+        TabOrder = 1
+        Visible = False
+        object pnlPgRepairOpts: TFlowPanel
+          Left = 8
+          Height = 36
+          Top = 8
+          Width = 900
+          Align = alTop
+          AutoSize = True
+          AutoWrap = True
+          BevelOuter = bvNone
+          BorderSpacing.Around = 8
+          ControlList = <          
+            item
+              Control = lblPgRepairAction
+              WrapAfter = waAvoid
+            end          
+            item
+              Control = cbPgRepairAction
+            end          
+            item
+              Control = btnStartPgRepair
+            end>
+          FlowLayout = tlCenter
+          FlowStyle = fsLeftRightTopBottom
+          TabOrder = 0
+          OnResize = PanelsResize
+          object lblPgRepairAction: TLabel
+            Left = 2
+            Height = 15
+            Top = 9
+            Width = 60
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Comando:'
+          end
+          object cbPgRepairAction: TComboBox
+            Left = 68
+            Height = 23
+            Top = 5
+            Width = 430
+            Anchors = []
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 8
+            BorderSpacing.Bottom = 2
+            ItemHeight = 15
+            Style = csDropDownList
+            TabOrder = 0
+            OnChange = cbPgRepairActionChange
+          end
+          object btnStartPgRepair: TButton
+            Left = 506
+            Height = 30
+            Top = 2
+            Width = 210
+            Anchors = []
+            AutoSize = True
+            BorderSpacing.Left = 2
+            BorderSpacing.Top = 2
+            BorderSpacing.Right = 4
+            BorderSpacing.Bottom = 2
+            Caption = 'Executar Manutenção PostgreSQL'
+            Constraints.MinHeight = 30
+            TabOrder = 1
+            OnClick = btnStartRepairClick
+          end
+        end
+      end
+    end
+  end
+  object splOutput: TSplitter
+    Cursor = crVSplit
+    Left = 0
+    Height = 6
+    Top = 312
+    Width = 940
+    Align = alTop
+    MinSize = 140
+    ResizeAnchor = akTop
+    ResizeStyle = rsUpdate
+  end
+  object pnlOutput: TPanel
+    Left = 8
+    Height = 308
+    Top = 318
+    Width = 924
+    Align = alClient
+    BevelOuter = bvNone
+    BorderSpacing.Left = 8
+    BorderSpacing.Right = 8
+    ClientHeight = 308
+    ClientWidth = 924
+    Constraints.MinHeight = 140
+    TabOrder = 3
+    object pnlPreview: TPanel
+      Left = 0
+      Height = 28
+      Top = 0
+      Width = 924
+      Align = alTop
+      AutoSize = True
+      BevelOuter = bvNone
+      BorderSpacing.Bottom = 4
+      ClientHeight = 28
+      ClientWidth = 924
+      TabOrder = 0
+      object lblPreviewTitle: TLabel
+        Left = 0
+        Height = 28
+        Top = 0
+        Width = 114
+        Align = alLeft
+        BorderSpacing.Right = 6
+        Caption = 'Prévia do Comando:'
+        Font.Style = [fsBold]
+        Layout = tlCenter
+        ParentFont = False
+      end
+      object edtCmdPreview: TEdit
+        Left = 120
+        Height = 28
+        Top = 0
+        Width = 804
+        Align = alClient
+        ReadOnly = True
+        TabOrder = 0
+      end
+    end
+    object pnlLogBar: TFlowPanel
+      Left = 0
+      Height = 30
+      Top = 32
+      Width = 924
+      Align = alTop
+      AutoSize = True
+      AutoWrap = True
+      BevelOuter = bvNone
+      BorderSpacing.Bottom = 4
+      ControlList = <      
+        item
+          Control = lblOpStatus
+        end      
+        item
+          Control = btnCancelOp
+        end      
+        item
+          Control = btnClearLog
+        end      
+        item
+          Control = btnCopyLog
+        end      
+        item
+          Control = btnSaveLog
+        end>
+      FlowLayout = tlCenter
+      FlowStyle = fsLeftRightTopBottom
+      TabOrder = 1
+      OnResize = PanelsResize
+      object lblOpStatus: TLabel
+        Left = 2
+        Height = 15
+        Top = 6
+        Width = 42
+        Anchors = []
+        AutoSize = True
+        BorderSpacing.Left = 2
+        BorderSpacing.Top = 2
+        BorderSpacing.Right = 12
+        BorderSpacing.Bottom = 2
+        Caption = 'Pronto.'
+        Font.Style = [fsBold]
+        ParentFont = False
+        ShowAccelChar = False
+      end
+      object btnCancelOp: TButton
+        Left = 56
+        Height = 26
+        Top = 2
+        Width = 82
+        Anchors = []
+        AutoSize = True
+        BorderSpacing.Left = 2
+        BorderSpacing.Top = 2
+        BorderSpacing.Right = 6
+        BorderSpacing.Bottom = 2
+        Caption = 'Cancelar'
+        Constraints.MinHeight = 26
+        Enabled = False
+        TabOrder = 0
+        OnClick = btnCancelOpClick
+      end
+      object btnClearLog: TButton
+        Left = 144
+        Height = 26
+        Top = 2
+        Width = 86
+        Anchors = []
+        AutoSize = True
+        BorderSpacing.Left = 2
+        BorderSpacing.Top = 2
+        BorderSpacing.Right = 4
+        BorderSpacing.Bottom = 2
+        Caption = 'Limpar Log'
+        Constraints.MinHeight = 26
+        TabOrder = 1
+        OnClick = btnClearLogClick
+      end
+      object btnCopyLog: TButton
+        Left = 236
+        Height = 26
+        Top = 2
+        Width = 82
+        Anchors = []
+        AutoSize = True
+        BorderSpacing.Left = 2
+        BorderSpacing.Top = 2
+        BorderSpacing.Right = 4
+        BorderSpacing.Bottom = 2
+        Caption = 'Copiar Log'
+        Constraints.MinHeight = 26
+        TabOrder = 2
+        OnClick = btnCopyLogClick
+      end
+      object btnSaveLog: TButton
+        Left = 324
+        Height = 26
+        Top = 2
+        Width = 86
+        Anchors = []
+        AutoSize = True
+        BorderSpacing.Left = 2
+        BorderSpacing.Top = 2
+        BorderSpacing.Right = 4
+        BorderSpacing.Bottom = 2
+        Caption = 'Salvar Log...'
+        Constraints.MinHeight = 26
+        TabOrder = 3
+        OnClick = btnSaveLogClick
+      end
+    end
+    object memOutput: TMemo
+      Left = 0
+      Height = 242
+      Top = 66
+      Width = 924
+      Align = alClient
+      Font.Height = -12
+      Font.Name = 'Consolas'
+      ParentFont = False
+      ReadOnly = True
+      ScrollBars = ssBoth
+      TabOrder = 2
+    end
+  end
+  object pnlFooter: TPanel
+    Left = 8
+    Height = 32
+    Top = 630
+    Width = 924
+    Align = alBottom
+    AutoSize = True
+    BevelOuter = bvNone
+    BorderSpacing.Around = 8
+    ClientHeight = 32
+    ClientWidth = 924
+    TabOrder = 4
+    object btnClose: TButton
+      Left = 834
+      Height = 32
+      Top = 0
+      Width = 90
+      Align = alRight
+      AutoSize = True
+      Cancel = True
+      Caption = 'Fechar'
+      Constraints.MinHeight = 28
+      Constraints.MinWidth = 90
+      TabOrder = 0
+      OnClick = btnCloseClick
+    end
+  end
+  object dlgOpenFile: TOpenDialog
+    Left = 720
+    Top = 440
+  end
+  object dlgSaveFile: TSaveDialog
+    Left = 790
+    Top = 440
+  end
+  object dlgSaveLog: TSaveDialog
+    DefaultExt = '.log'
+    Filter = 'Log (*.log;*.txt)|*.log;*.txt|Todos os arquivos (*.*)|*.*'
+    Left = 860
+    Top = 440
+  end
+  object tmrElapsed: TTimer
+    Enabled = False
+    Interval = 250
+    OnTimer = tmrElapsedTimer
+    Left = 650
+    Top = 440
+  end
+end
