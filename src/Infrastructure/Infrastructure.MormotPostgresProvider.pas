@@ -121,6 +121,85 @@ uses
 type
   TExposedPgStatement = class(TSqlDBPostgresStatement);
 
+var
+  GPgLibLock: TCriticalSection = nil;
+
+{$IFDEF WINDOWS}
+function SetDllDirectoryW(lpPathName: PWideChar): LongBool; stdcall; external 'kernel32.dll' name 'SetDllDirectoryW';
+{$ENDIF}
+
+function ResolvePostgresClientDllPath(const AProfile: TConnectionProfile): string;
+{$IFDEF WINDOWS}
+const
+  {$IFDEF CPU64}
+  WinArchDir = 'win64';
+  {$ELSE}
+  WinArchDir = 'win32';
+  {$ENDIF}
+var
+  ExeDir, TestPath: string;
+{$ENDIF}
+begin
+  Result := '';
+  if (AProfile <> nil) and (Trim(AProfile.ClientLibraryPath) <> '') and
+     FileExists(AProfile.ClientLibraryPath) then
+  begin
+    Result := AProfile.ClientLibraryPath;
+    Exit;
+  end;
+
+  {$IFDEF WINDOWS}
+  ExeDir := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)));
+
+  TestPath := ExeDir + 'clients' + PathDelim + 'postgres' + PathDelim + WinArchDir + PathDelim + 'libpq.dll';
+  if FileExists(TestPath) then
+    Exit(TestPath);
+
+  TestPath := ExeDir + 'clients' + PathDelim + 'postgres' + PathDelim + 'libpq.dll';
+  if FileExists(TestPath) then
+    Exit(TestPath);
+
+  TestPath := ExeDir + 'libpq.dll';
+  if FileExists(TestPath) then
+    Exit(TestPath);
+  {$ENDIF}
+end;
+
+procedure EnsurePostgresClientLib(const AProfile: TConnectionProfile);
+var
+  DllPath: string;
+  {$IFDEF WINDOWS}
+  WideDir: UnicodeString;
+  {$ENDIF}
+begin
+  GPgLibLock.Acquire;
+  try
+    if PQ <> nil then
+      Exit;
+
+    DllPath := ResolvePostgresClientDllPath(AProfile);
+    if DllPath <> '' then
+    begin
+      SynDBPostgresLibrary := TFileName(DllPath);
+      {$IFDEF WINDOWS}
+      WideDir := UnicodeString(ExtractFileDir(DllPath));
+      SetDllDirectoryW(PWideChar(WideDir));
+      try
+        PostgresLibraryInitialize;
+      finally
+        SetDllDirectoryW(nil);
+      end;
+      {$ELSE}
+      PostgresLibraryInitialize;
+      {$ENDIF}
+    end
+    else
+      PostgresLibraryInitialize;
+  finally
+    GPgLibLock.Release;
+  end;
+end;
+
 function PostgresFieldTypeToStr(const AType: TSqlDBFieldType): string;
 begin
   case AType of
@@ -599,6 +678,7 @@ begin
   FBackendPid := 0;
   FCursorCounter := 0;
   FProfile := AProfile.Clone;
+  EnsurePostgresClientLib(FProfile);
   if FProfile.Port > 0 then
     ServerAddr := RawUtf8(Format('%s:%d', [FProfile.Host, FProfile.Port]))
   else
@@ -1092,5 +1172,11 @@ function TMormotPostgresProvider.CreateSession(const AProfile: TConnectionProfil
 begin
   Result := TMormotPostgresSession.Create(AProfile);
 end;
+
+initialization
+  GPgLibLock := TCriticalSection.Create;
+
+finalization
+  FreeAndNil(GPgLibLock);
 
 end.

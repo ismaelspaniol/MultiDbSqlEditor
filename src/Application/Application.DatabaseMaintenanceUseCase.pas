@@ -212,8 +212,30 @@ begin
       begin
         VerFolder := FirebirdVersionFolder(AProfile.FirebirdVersion);
         if VerFolder <> '' then
+        begin
+          {$IFDEF WINDOWS}
+          {$IFDEF CPU64}
+          Dirs.Add(ExeDir + 'clients' + PathDelim + 'firebird' + PathDelim + VerFolder + PathDelim + 'win64');
+          {$ELSE}
+          Dirs.Add(ExeDir + 'clients' + PathDelim + 'firebird' + PathDelim + VerFolder + PathDelim + 'win32');
+          {$ENDIF}
+          {$ENDIF}
           Dirs.Add(ExeDir + 'clients' + PathDelim + 'firebird' + PathDelim + VerFolder);
+        end;
       end;
+      if Trim(AProfile.ClientLibraryPath) <> '' then
+        Dirs.Add(ExtractFileDir(AProfile.ClientLibraryPath));
+    end
+    else if (AProfile <> nil) and (AProfile.DatabaseType = dtPostgreSQL) then
+    begin
+      {$IFDEF WINDOWS}
+      {$IFDEF CPU64}
+      Dirs.Add(ExeDir + 'clients' + PathDelim + 'postgres' + PathDelim + 'win64');
+      {$ELSE}
+      Dirs.Add(ExeDir + 'clients' + PathDelim + 'postgres' + PathDelim + 'win32');
+      {$ENDIF}
+      {$ENDIF}
+      Dirs.Add(ExeDir + 'clients' + PathDelim + 'postgres');
       if Trim(AProfile.ClientLibraryPath) <> '' then
         Dirs.Add(ExtractFileDir(AProfile.ClientLibraryPath));
     end;

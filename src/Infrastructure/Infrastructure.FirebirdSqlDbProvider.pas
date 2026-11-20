@@ -442,6 +442,14 @@ begin
 end;
 
 function ResolveFirebirdClientDllPath(const AProfile: TConnectionProfile): string;
+{$IFDEF WINDOWS}
+const
+  {$IFDEF CPU64}
+  WinArchDir = 'win64';
+  {$ELSE}
+  WinArchDir = 'win32';
+  {$ENDIF}
+{$ENDIF}
 var
   ExeDir, VerFolder, CandidateDir: string;
   AutoVersions: array[0..3] of string = ('5.0', '4.0', '3.0', '2.5');
@@ -532,10 +540,21 @@ begin
   if AProfile.FirebirdVersion <> fvAuto then
   begin
     VerFolder := FirebirdVersionFolder(AProfile.FirebirdVersion);
+    {$IFDEF WINDOWS}
+    CandidateDir := ExeDir + 'clients' + PathDelim + 'firebird' + PathDelim + VerFolder + PathDelim + WinArchDir;
+    Result := FindInDir(CandidateDir, Candidates);
+    if Result <> '' then
+      Exit;
+
+    Result := FindInDir(ExeDir + 'clients' + PathDelim + 'firebird' + PathDelim + VerFolder, Candidates);
+    if Result <> '' then
+      Exit;
+    {$ELSE}
     CandidateDir := ExeDir + 'clients' + PathDelim + 'firebird' + PathDelim + VerFolder;
     Result := FindInDir(CandidateDir, Candidates);
     if Result <> '' then
       Exit;
+    {$ENDIF}
 
     Result := FindInDir(ExeDir, Candidates);
     if Result <> '' then
@@ -565,6 +584,12 @@ begin
 
   for I := Low(AutoVersions) to High(AutoVersions) do
   begin
+    {$IFDEF WINDOWS}
+    CandidateDir := ExeDir + 'clients' + PathDelim + 'firebird' + PathDelim + AutoVersions[I] + PathDelim + WinArchDir;
+    Result := FindInDir(CandidateDir, Candidates);
+    if Result <> '' then
+      Exit;
+    {$ENDIF}
     CandidateDir := ExeDir + 'clients' + PathDelim + 'firebird' + PathDelim + AutoVersions[I];
     Result := FindInDir(CandidateDir, Candidates);
     if Result <> '' then

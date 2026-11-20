@@ -17,5 +17,7 @@ O código-fonte em `src/` é dividido em 4 camadas com dependências unidirecion
 1. **Lazarus / Free Pascal** (FPC 3.2.2+ recomendado).
 2. **mORMot2** — Baixe o repositório oficial do `mORMot2` e adicione os diretórios `src/` do mORMot2 ao *Unit Search Path* do projeto no Lazarus.
 3. **Bibliotecas Clientes (em tempo de execução):**
-   - Firebird: `fbclient.dll`
-   - PostgreSQL: `libpq.dll` (e dependências OpenSSL, se aplicável)
+   - **Windows (`win64` e `win32` com detecção automática da arquitetura do executável):**
+     - Firebird: `bin/clients/firebird/{2.5,3.0,4.0,5.0}/{win64,win32}/fbclient.dll` (e dependências)
+     - PostgreSQL: `bin/clients/postgres/{win64,win32}/libpq.dll` (e dependências OpenSSL/iconv/intl)
+   - **Linux:** bibliotecas `.so` em `bin/clients/firebird/{2.5,3.0,4.0,5.0}/` ou instaladas no sistema (`libfbclient2`, `libpq5`).
