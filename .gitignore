@@ -19,7 +19,9 @@
 # Output & IDE folders
 lib/
 backup/
-bin/
+bin/*
+!bin/clients/
+!bin/clients/**
 __history/
 __recovery/
 
