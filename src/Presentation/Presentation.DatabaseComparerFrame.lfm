@@ -398,11 +398,11 @@ object DatabaseComparerFrame: TDatabaseComparerFrame
     BorderSpacing.Left = 4
     BorderSpacing.Right = 4
     ColCount = 5
-    Constraints.MinHeight = 120
+    Constraints.MinHeight = 60
     DefaultColWidth = 160
     DefaultRowHeight = 22
     FixedCols = 0
-    Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goThumbTracking]
+    Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goRowSelect, goColSizing, goRowSizing, goThumbTracking]
     RowCount = 1
     TabOrder = 2
     OnKeyDown = grdDiffsKeyDown
@@ -413,25 +413,26 @@ object DatabaseComparerFrame: TDatabaseComparerFrame
   object splMain: TSplitter
     Cursor = crVSplit
     Left = 0
-    Height = 6
+    Height = 8
     Top = 304
     Width = 980
     Align = alTop
-    MinSize = 110
+    Beveled = True
+    MinSize = 60
     ResizeAnchor = akTop
     ResizeStyle = rsUpdate
   end
   object pgDetails: TPageControl
     Left = 4
-    Height = 306
-    Top = 310
+    Height = 304
+    Top = 312
     Width = 972
     ActivePage = tsScript
     Align = alClient
     BorderSpacing.Left = 4
     BorderSpacing.Right = 4
     BorderSpacing.Bottom = 4
-    Constraints.MinHeight = 130
+    Constraints.MinHeight = 60
     TabIndex = 0
     TabOrder = 4
     object tsScript: TTabSheet

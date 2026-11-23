@@ -67,6 +67,7 @@ type
     ): TProcedureMetadata;
   public
     constructor Create(const AFactory: IDatabaseProviderFactory);
+    function CreateSession(const AProfile: TConnectionProfile): IDatabaseSession;
     function ExecuteMetadataQuery(const AProfile: TConnectionProfile; const ASQL: string): TQueryResult;
     function LoadObjectDDL(
       const AProfile: TConnectionProfile;
@@ -172,6 +173,8 @@ begin
   Cleaned := Trim(AName);
   if ADbType = dtPostgreSQL then
     Result := '"' + StringReplace(Cleaned, '"', '""', [rfReplaceAll]) + '"'
+  else if ADbType = dtMariaDB then
+    Result := '`' + StringReplace(Cleaned, '`', '``', [rfReplaceAll]) + '`'
   else if NeedsFirebirdQuotes(Cleaned) then
     Result := '"' + StringReplace(Cleaned, '"', '""', [rfReplaceAll]) + '"'
   else
@@ -365,6 +368,18 @@ constructor TManageDatabaseObjectsUseCase.Create(const AFactory: IDatabaseProvid
 begin
   inherited Create;
   FFactory := AFactory;
+end;
+
+function TManageDatabaseObjectsUseCase.CreateSession(
+  const AProfile: TConnectionProfile
+): IDatabaseSession;
+var
+  Provider: IDatabaseProvider;
+begin
+  if AProfile = nil then
+    raise Exception.Create('Perfil de conexão inválido.');
+  Provider := FFactory.GetProvider(AProfile.DatabaseType);
+  Result := Provider.CreateSession(AProfile);
 end;
 
 function TManageDatabaseObjectsUseCase.ExecuteSingleQuery(
@@ -600,7 +615,7 @@ begin
       'SELECT pg_get_viewdef(c.oid, true) ' +
       'FROM pg_class c ' +
       'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
-      'WHERE n.nspname = ''public'' AND c.relname = ''%s'' AND c.relkind = ''v''',
+      'WHERE n.nspname = current_schema() AND c.relname = ''%s'' AND c.relkind = ''v''',
       [SafeName]
     )
   );
@@ -634,7 +649,7 @@ begin
       'SELECT pg_get_functiondef(p.oid) ' +
       'FROM pg_proc p ' +
       'JOIN pg_namespace n ON n.oid = p.pronamespace ' +
-      'WHERE n.nspname = ''public'' AND p.proname = ''%s''',
+      'WHERE n.nspname = current_schema() AND p.proname = ''%s''',
       [SafeName]
     )
   );
@@ -671,7 +686,7 @@ begin
       'FROM pg_trigger t ' +
       'JOIN pg_class c ON c.oid = t.tgrelid ' +
       'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
-      'WHERE n.nspname = ''public'' AND NOT t.tgisinternal AND t.tgname = ''%s'' ' +
+      'WHERE n.nspname = current_schema() AND NOT t.tgisinternal AND t.tgname = ''%s'' ' +
       'LIMIT 1',
       [SafeName]
     )
@@ -702,6 +717,9 @@ function TManageDatabaseObjectsUseCase.LoadObjectDDL(
 var
   Val: Int64;
   TableUseCase: TManageTableStructureUseCase;
+  Res: TQueryResult;
+  ShowSQL: string;
+  ColIdx: Integer;
 begin
   if AProfile = nil then
     raise Exception.Create('Conexão inválida.');
@@ -737,6 +755,37 @@ begin
         end;
     else
       raise Exception.Create('Tipo de objeto não suportado para edição de DDL.');
+    end;
+  end
+  else if AProfile.DatabaseType = dtMariaDB then
+  begin
+    case AKind of
+      sokViews:
+        begin
+          ShowSQL := 'SHOW CREATE VIEW ' + QuoteDbIdent(dtMariaDB, AObjectName);
+          ColIdx := 1;
+        end;
+      sokProcedures:
+        begin
+          ShowSQL := 'SHOW CREATE PROCEDURE ' + QuoteDbIdent(dtMariaDB, AObjectName);
+          ColIdx := 2;
+        end;
+      sokTriggers:
+        begin
+          ShowSQL := 'SHOW CREATE TRIGGER ' + QuoteDbIdent(dtMariaDB, AObjectName);
+          ColIdx := 2;
+        end;
+    else
+      raise Exception.Create('Tipo de objeto não suportado para edição de DDL.');
+    end;
+    Res := ExecuteSingleQuery(AProfile, ShowSQL);
+    try
+      if (Res.RowCount > 0) and (Res.ColumnCount > ColIdx) then
+        Result := Res.GetRow(0)[ColIdx].AsText
+      else
+        Result := '';
+    finally
+      Res.Free;
     end;
   end
   else
@@ -1620,7 +1669,7 @@ begin
       'SELECT specific_name, UPPER(COALESCE(routine_type, ''FUNCTION'')), ' +
       'LOWER(COALESCE(data_type, '''')), LOWER(COALESCE(type_udt_name, '''')) ' +
       'FROM information_schema.routines ' +
-      'WHERE routine_schema = ''public'' AND routine_name = ''%s'' ' +
+      'WHERE routine_schema = current_schema() AND routine_name = ''%s'' ' +
       'ORDER BY specific_name LIMIT 1',
       [SafeName]
     )
@@ -1652,7 +1701,7 @@ begin
       '  COALESCE(udt_name, ''''), ' +
       '  parameter_default ' +
       'FROM information_schema.parameters ' +
-      'WHERE specific_schema = ''public'' AND specific_name = ''%s'' ' +
+      'WHERE specific_schema = current_schema() AND specific_name = ''%s'' ' +
       'ORDER BY ordinal_position',
       [SafeSpecificName]
     )

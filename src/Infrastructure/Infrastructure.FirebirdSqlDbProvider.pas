@@ -171,6 +171,7 @@ type
 
 var
   GFbLibLock: TCriticalSection = nil;
+  GFbFetchLock: TCriticalSection = nil;
   GFbActiveLibUsers: Integer = 0;
 
 {$IFDEF WINDOWS}
@@ -292,51 +293,59 @@ begin
   if not HasMore then
     Exit;
 
-  Count := 0;
-  while (not FQuery.EOF) and (Count < ABatchSize) do
-  begin
-    if (ATarget <> nil) and ATarget.IsMemoryLimitReached then
+  GFbFetchLock.Acquire;
+  try
+    if not HasMore then
+      Exit;
+
+    Count := 0;
+    while (not FQuery.EOF) and (Count < ABatchSize) do
     begin
-      ATarget.MarkMemoryLimitReached;
+      if (ATarget <> nil) and ATarget.IsMemoryLimitReached then
+      begin
+        ATarget.MarkMemoryLimitReached;
+        RefreshPerformance(ATarget);
+        CloseCursor;
+        Break;
+      end;
+
+      SetLength(Row, FColCount);
+      for I := 0 to FColCount - 1 do
+      begin
+        Fld := FQuery.Fields[I];
+        Row[I].IsNull := Fld.IsNull;
+        if Row[I].IsNull then
+          Row[I].AsText := ''
+        else if Fld.DataType in [ftBlob, ftGraphic, ftParadoxOle, ftDBaseOle, ftTypedBinary, ftOraBlob] then
+          Row[I].AsText := '(BLOB)'
+        else if Fld.DataType in [ftBytes, ftVarBytes] then
+          Row[I].AsText := Format('(BINARY %d B)', [Fld.DataSize])
+        else if Fld.DataType in [ftString, ftFixedChar, ftMemo, ftWideString, ftFixedWideChar, ftWideMemo] then
+          Row[I].AsText := TruncateGridCellText(DecodeFirebirdTextToUTF8(Fld.AsString, FConnCharset))
+        else
+          Row[I].AsText := Fld.AsString;
+      end;
+      ATarget.AddRow(Row);
+      Inc(Count);
+      FQuery.Next;
+
+      if (ATarget <> nil) and ATarget.IsMemoryLimitReached then
+      begin
+        ATarget.MarkMemoryLimitReached;
+        RefreshPerformance(ATarget);
+        CloseCursor;
+        Break;
+      end;
+    end;
+
+    Result := Count;
+    if (not FClosed) and (FQuery <> nil) and FQuery.EOF then
+    begin
       RefreshPerformance(ATarget);
       CloseCursor;
-      Break;
     end;
-
-    SetLength(Row, FColCount);
-    for I := 0 to FColCount - 1 do
-    begin
-      Fld := FQuery.Fields[I];
-      Row[I].IsNull := Fld.IsNull;
-      if Row[I].IsNull then
-        Row[I].AsText := ''
-      else if Fld.DataType in [ftBlob, ftGraphic, ftParadoxOle, ftDBaseOle, ftTypedBinary, ftOraBlob] then
-        Row[I].AsText := '(BLOB)'
-      else if Fld.DataType in [ftBytes, ftVarBytes] then
-        Row[I].AsText := Format('(BINARY %d B)', [Fld.DataSize])
-      else if Fld.DataType in [ftString, ftFixedChar, ftMemo, ftWideString, ftFixedWideChar, ftWideMemo] then
-        Row[I].AsText := TruncateGridCellText(DecodeFirebirdTextToUTF8(Fld.AsString, FConnCharset))
-      else
-        Row[I].AsText := Fld.AsString;
-    end;
-    ATarget.AddRow(Row);
-    Inc(Count);
-    FQuery.Next;
-
-    if (ATarget <> nil) and ATarget.IsMemoryLimitReached then
-    begin
-      ATarget.MarkMemoryLimitReached;
-      RefreshPerformance(ATarget);
-      CloseCursor;
-      Break;
-    end;
-  end;
-
-  Result := Count;
-  if (not FClosed) and (FQuery <> nil) and FQuery.EOF then
-  begin
-    RefreshPerformance(ATarget);
-    CloseCursor;
+  finally
+    GFbFetchLock.Release;
   end;
 end;
 
@@ -1359,7 +1368,17 @@ begin
     if IsSelect then
     begin
       ExecStart := GetTickCount64;
-      Query.Open;
+      if Pos('2.5', string(IBaseLoadedLibrary)) > 0 then
+      begin
+        GFbFetchLock.Acquire;
+        try
+          Query.Open;
+        finally
+          GFbFetchLock.Release;
+        end;
+      end
+      else
+        Query.Open;
       ColCount := Query.Fields.Count;
       SetLength(Cols, ColCount);
       for I := 0 to ColCount - 1 do
@@ -1439,7 +1458,7 @@ begin
         if CaptureDatabaseCounters(AfterCounters) then
           PopulatePerformanceStats(BeforeCounters, AfterCounters, PlanText, PrepMs, ExecMs, Result);
       finally
-        Query.Free;
+        FreeAndNil(Query);
       end;
     end;
 
@@ -1450,8 +1469,7 @@ begin
   except
     on E: Exception do
     begin
-      if Query <> nil then
-        Query.Free;
+      FreeAndNil(Query);
       Result.Success := False;
       Result.MessageText := E.Message;
       if IsBlockSizeLimitError(E) then
@@ -1592,8 +1610,10 @@ end;
 
 initialization
   GFbLibLock := TCriticalSection.Create;
+  GFbFetchLock := TCriticalSection.Create;
 
 finalization
+  FreeAndNil(GFbFetchLock);
   FreeAndNil(GFbLibLock);
 
 end.

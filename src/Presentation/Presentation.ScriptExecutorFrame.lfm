@@ -628,7 +628,7 @@ object ScriptExecutorFrame: TScriptExecutorFrame
       RightGutter.Width = 0
       RightGutter.MouseActions = <>
       Highlighter = SynSQLSyn1
-      Options = [eoAutoIndent, eoBracketHighlight, eoGroupUndo, eoScrollPastEol, eoSmartTabs, eoTabsToSpaces, eoTrimTrailingSpaces]
+      Options = [eoAutoIndent, eoBracketHighlight, eoGroupUndo, eoScrollPastEol, eoShowCtrlMouseLinks, eoSmartTabs, eoTabsToSpaces, eoTrimTrailingSpaces]
       VisibleSpecialChars = [vscSpace, vscTabAtLast]
       ReadOnly = False
       RightEdge = 120

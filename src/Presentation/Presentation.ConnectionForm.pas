@@ -42,6 +42,9 @@ type
     edtRole: TEdit;
     lblFirebirdVersion: TLabel;
     cbFirebirdVersion: TComboBox;
+    lblSchema: TLabel;
+    cbSchema: TComboBox;
+    btnLoadSchemas: TButton;
     btnTest: TButton;
     btnSave: TButton;
     btnCancel: TButton;
@@ -50,6 +53,7 @@ type
     procedure edtHostChange(Sender: TObject);
     procedure edtDatabaseChange(Sender: TObject);
     procedure btnBrowseDbClick(Sender: TObject);
+    procedure btnLoadSchemasClick(Sender: TObject);
     procedure btnTestClick(Sender: TObject);
     procedure btnSaveClick(Sender: TObject);
   private
@@ -104,6 +108,7 @@ begin
     case AProfile.DatabaseType of
       dtFirebird: cbDbType.ItemIndex := 0;
       dtPostgreSQL: cbDbType.ItemIndex := 1;
+      dtMariaDB: cbDbType.ItemIndex := 2;
     end;
     edtHost.Text := AProfile.Host;
     edtPort.Text := IntToStr(AProfile.Port);
@@ -112,6 +117,7 @@ begin
     edtPassword.Text := AProfile.Password;
     cbCharset.Text := AProfile.Charset;
     edtRole.Text := AProfile.Role;
+    cbSchema.Text := AProfile.EffectiveSchema;
     case AProfile.FirebirdVersion of
       fvAuto: cbFirebirdVersion.ItemIndex := 0;
       fv50: cbFirebirdVersion.ItemIndex := 1;
@@ -132,6 +138,8 @@ begin
   AProfile.Name := Trim(edtName.Text);
   if cbDbType.ItemIndex = 1 then
     AProfile.DatabaseType := dtPostgreSQL
+  else if cbDbType.ItemIndex = 2 then
+    AProfile.DatabaseType := dtMariaDB
   else
     AProfile.DatabaseType := dtFirebird;
   AProfile.Host := Trim(edtHost.Text);
@@ -141,6 +149,10 @@ begin
   AProfile.Password := edtPassword.Text;
   AProfile.Charset := Trim(cbCharset.Text);
   AProfile.Role := Trim(edtRole.Text);
+  if Trim(cbSchema.Text) <> '' then
+    AProfile.Schema := Trim(cbSchema.Text)
+  else
+    AProfile.Schema := 'public';
   case cbFirebirdVersion.ItemIndex of
     1: AProfile.FirebirdVersion := fv50;
     2: AProfile.FirebirdVersion := fv40;
@@ -153,9 +165,10 @@ end;
 
 procedure TConnectionForm.UpdateFieldsForDatabaseType;
 var
-  IsFirebird: Boolean;
+  IsFirebird, IsPostgres: Boolean;
 begin
-  IsFirebird := cbDbType.ItemIndex <> 1;
+  IsFirebird := cbDbType.ItemIndex = 0;
+  IsPostgres := cbDbType.ItemIndex = 1;
   if IsFirebird then
   begin
     lblDatabase.Caption := 'Arquivo (.fdb) ou Alias:';
@@ -169,6 +182,11 @@ begin
     edtRole.Enabled := True;
     lblFirebirdVersion.Enabled := True;
     cbFirebirdVersion.Enabled := True;
+    lblFirebirdVersion.Visible := True;
+    cbFirebirdVersion.Visible := True;
+    lblSchema.Visible := False;
+    cbSchema.Visible := False;
+    btnLoadSchemas.Visible := False;
     if Trim(edtUsername.Text) = '' then
       edtUsername.Text := 'SYSDBA';
   end
@@ -179,14 +197,29 @@ begin
     edtDatabase.AnchorSideRight.Control := pnlContent;
     edtDatabase.AnchorSideRight.Side := asrBottom;
     edtDatabase.BorderSpacing.Right := 0;
-    lblCharset.Enabled := False;
-    cbCharset.Enabled := False;
+    lblCharset.Enabled := not IsPostgres;
+    cbCharset.Enabled := not IsPostgres;
     lblRole.Enabled := False;
     edtRole.Enabled := False;
     lblFirebirdVersion.Enabled := False;
     cbFirebirdVersion.Enabled := False;
-    if Trim(edtUsername.Text) = '' then
-      edtUsername.Text := 'postgres';
+    lblFirebirdVersion.Visible := False;
+    cbFirebirdVersion.Visible := False;
+    lblSchema.Visible := IsPostgres;
+    cbSchema.Visible := IsPostgres;
+    btnLoadSchemas.Visible := IsPostgres;
+    if IsPostgres then
+    begin
+      if Trim(cbSchema.Text) = '' then
+        cbSchema.Text := 'public';
+      if Trim(edtUsername.Text) = '' then
+        edtUsername.Text := 'postgres';
+    end
+    else
+    begin
+      if Trim(edtUsername.Text) = '' then
+        edtUsername.Text := 'root';
+    end;
   end;
 end;
 
@@ -194,16 +227,23 @@ procedure TConnectionForm.cbDbTypeChange(Sender: TObject);
 begin
   if cbDbType.ItemIndex = 1 then
   begin
-    if (Trim(edtPort.Text) = '') or (Trim(edtPort.Text) = '3050') then
+    if (Trim(edtPort.Text) = '') or (Trim(edtPort.Text) = '3050') or (Trim(edtPort.Text) = '3306') then
       edtPort.Text := '5432';
-    if SameText(Trim(edtUsername.Text), 'SYSDBA') then
+    if SameText(Trim(edtUsername.Text), 'SYSDBA') or SameText(Trim(edtUsername.Text), 'root') then
       edtUsername.Text := 'postgres';
+  end
+  else if cbDbType.ItemIndex = 2 then
+  begin
+    if (Trim(edtPort.Text) = '') or (Trim(edtPort.Text) = '3050') or (Trim(edtPort.Text) = '5432') then
+      edtPort.Text := '3306';
+    if SameText(Trim(edtUsername.Text), 'SYSDBA') or SameText(Trim(edtUsername.Text), 'postgres') then
+      edtUsername.Text := 'root';
   end
   else
   begin
-    if (Trim(edtPort.Text) = '') or (Trim(edtPort.Text) = '5432') then
+    if (Trim(edtPort.Text) = '') or (Trim(edtPort.Text) = '5432') or (Trim(edtPort.Text) = '3306') then
       edtPort.Text := '3050';
-    if SameText(Trim(edtUsername.Text), 'postgres') then
+    if SameText(Trim(edtUsername.Text), 'postgres') or SameText(Trim(edtUsername.Text), 'root') then
       edtUsername.Text := 'SYSDBA';
   end;
   UpdateFieldsForDatabaseType;
@@ -250,6 +290,43 @@ procedure TConnectionForm.btnBrowseDbClick(Sender: TObject);
 begin
   if dlgOpenDb.Execute then
     edtDatabase.Text := dlgOpenDb.FileName;
+end;
+
+procedure TConnectionForm.btnLoadSchemasClick(Sender: TObject);
+var
+  TempProfile: TConnectionProfile;
+  Schemas: TStringList;
+  CurText, ErrMsg: string;
+begin
+  if FTestUseCase = nil then
+    Exit;
+
+  CurText := Trim(cbSchema.Text);
+  TempProfile := TConnectionProfile.Create;
+  Schemas := TStringList.Create;
+  try
+    SaveToProfile(TempProfile);
+    Screen.Cursor := crHourGlass;
+    try
+      if not FTestUseCase.ListPostgresSchemas(TempProfile, Schemas, ErrMsg) then
+      begin
+        MessageDlg('Schemas PostgreSQL', 'Erro ao listar schemas: ' + ErrMsg, mtError, [mbOK], 0);
+        Exit;
+      end;
+    finally
+      Screen.Cursor := crDefault;
+    end;
+
+    cbSchema.Items.Assign(Schemas);
+    if (CurText <> '') and (cbSchema.Items.IndexOf(CurText) >= 0) then
+      cbSchema.Text := CurText
+    else if cbSchema.Items.Count > 0 then
+      cbSchema.ItemIndex := 0;
+    cbSchema.DroppedDown := cbSchema.Items.Count > 0;
+  finally
+    Schemas.Free;
+    TempProfile.Free;
+  end;
 end;
 
 procedure TConnectionForm.btnTestClick(Sender: TObject);

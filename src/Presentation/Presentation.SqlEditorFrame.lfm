@@ -351,7 +351,7 @@ object SqlEditorFrame: TSqlEditorFrame
     Top = 42
     Width = 960
     Align = alTop
-    Constraints.MinHeight = 100
+    Constraints.MinHeight = 40
     Font.Height = -14
     Font.Name = 'Consolas'
     Font.Pitch = fpFixed
@@ -365,24 +365,26 @@ object SqlEditorFrame: TSqlEditorFrame
     RightGutter.Width = 0
     RightGutter.MouseActions = <>
     Highlighter = SynSQLSyn1
-    Options = [eoAutoIndent, eoBracketHighlight, eoGroupUndo, eoScrollPastEol, eoSmartTabs, eoTabsToSpaces, eoTrimTrailingSpaces]
+    Options = [eoAutoIndent, eoBracketHighlight, eoGroupUndo, eoScrollPastEol, eoShowCtrlMouseLinks, eoSmartTabs, eoTabsToSpaces, eoTrimTrailingSpaces]
     VisibleSpecialChars = [vscSpace, vscTabAtLast]
     ReadOnly = False
     RightEdge = 120
     ScrollBars = ssBoth
     TabWidth = 2
   end
-  object Splitter1: TSplitter
+  object Splitter1: TPanel
     Cursor = crVSplit
     Left = 0
-    Height = 6
+    Height = 10
     Top = 292
     Width = 960
     Align = alTop
-    MinSize = 100
-    ResizeAnchor = akTop
-    ResizeStyle = rsUpdate
-    OnMoved = Splitter1Moved
+    BevelOuter = bvNone
+    TabOrder = 2
+    OnMouseDown = Splitter1MouseDown
+    OnMouseMove = Splitter1MouseMove
+    OnMouseUp = Splitter1MouseUp
+    OnPaint = Splitter1Paint
   end
   object pgBottom: TPageControl
     Left = 0
@@ -391,7 +393,7 @@ object SqlEditorFrame: TSqlEditorFrame
     Width = 960
     ActivePage = tsData
     Align = alClient
-    Constraints.MinHeight = 120
+    Constraints.MinHeight = 40
     TabIndex = 0
     TabOrder = 3
     object tsData: TTabSheet

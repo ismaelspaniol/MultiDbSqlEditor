@@ -19,6 +19,8 @@ uses
   LCLType,
   SynEdit,
   SynHighlighterSQL,
+  fpjson,
+  jsonparser,
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
   Domain.Interfaces,
@@ -108,6 +110,9 @@ type
     function SelectedSourceProfile: TConnectionProfile;
     function SelectedTargetProfile: TConnectionProfile;
     function ReadOptionsFromUI: TCompareOptions;
+    function SettingsFilePath: string;
+    procedure LoadSettings(const APreserveSourceId: Boolean);
+    procedure SaveSettings;
     procedure SetRunningState(const ARunning: Boolean; const AStatusText: string);
     procedure PopulateDiffGrid;
     procedure RebuildCombinedScript;
@@ -148,6 +153,7 @@ implementation
 
 destructor TDatabaseComparerFrame.Destroy;
 begin
+  SaveSettings;
   DetachAndCancel;
   FreeAndNil(FResult);
   FreeAndNil(FProfiles);
@@ -260,6 +266,7 @@ begin
   SynEditTargetDDL.Highlighter := SynSQLSyn1;
 
   ConfigureGrid;
+  LoadSettings(Trim(AInitialSourceId) <> '');
   RefreshConnections(AConnections);
   SetRunningState(False, 'Selecione Origem e Destino e clique em Comparar Bases.');
   LogMessage('Database Comparer pronto. Selecione uma base Origem (modelo) e uma base Destino (a atualizar).');
@@ -387,6 +394,96 @@ begin
   DetachAndCancel;
   SetRunningState(False, 'Operação cancelada e conexão desconectada.');
   LogMessage('Operação cancelada e conexão desconectada pelo usuário.');
+end;
+
+function TDatabaseComparerFrame.SettingsFilePath: string;
+begin
+  Result := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'comparer_settings.json';
+end;
+
+procedure TDatabaseComparerFrame.LoadSettings(const APreserveSourceId: Boolean);
+var
+  Path: string;
+  SL: TStringList;
+  Data: TJSONData;
+  Obj: TJSONObject;
+begin
+  Path := SettingsFilePath;
+  if not FileExists(Path) then
+    Exit;
+
+  SL := TStringList.Create;
+  try
+    try
+      SL.LoadFromFile(Path, TEncoding.UTF8);
+      if Trim(SL.Text) = '' then
+        Exit;
+      Data := GetJSON(SL.Text);
+      try
+        if not (Data is TJSONObject) then
+          Exit;
+        Obj := TJSONObject(Data);
+        if not APreserveSourceId then
+          FSourceProfileId := Obj.Get('sourceProfileId', FSourceProfileId);
+        FTargetProfileId := Obj.Get('targetProfileId', FTargetProfileId);
+        chkTables.Checked := Obj.Get('compareTables', chkTables.Checked);
+        chkConstraints.Checked := Obj.Get('compareConstraints', chkConstraints.Checked);
+        chkIndexes.Checked := Obj.Get('compareIndexes', chkIndexes.Checked);
+        chkGenerators.Checked := Obj.Get('compareGenerators', chkGenerators.Checked);
+        chkViews.Checked := Obj.Get('compareViews', chkViews.Checked);
+        chkProcedures.Checked := Obj.Get('compareProcedures', chkProcedures.Checked);
+        chkTriggers.Checked := Obj.Get('compareTriggers', chkTriggers.Checked);
+        chkIncludeDrops.Checked := Obj.Get('includeDrops', chkIncludeDrops.Checked);
+        if Obj.Get('diffGridHeight', 0) >= 60 then
+          grdDiffs.Height := Obj.Get('diffGridHeight', grdDiffs.Height);
+      finally
+        Data.Free;
+      end;
+    except
+    end;
+  finally
+    SL.Free;
+  end;
+end;
+
+procedure TDatabaseComparerFrame.SaveSettings;
+var
+  Obj: TJSONObject;
+  SL: TStringList;
+  SrcId, TgtId: string;
+begin
+  if SelectedSourceProfile <> nil then
+    SrcId := SelectedSourceProfile.Id
+  else
+    SrcId := FSourceProfileId;
+  if SelectedTargetProfile <> nil then
+    TgtId := SelectedTargetProfile.Id
+  else
+    TgtId := FTargetProfileId;
+
+  Obj := TJSONObject.Create;
+  SL := TStringList.Create;
+  try
+    Obj.Add('sourceProfileId', SrcId);
+    Obj.Add('targetProfileId', TgtId);
+    Obj.Add('compareTables', chkTables.Checked);
+    Obj.Add('compareConstraints', chkConstraints.Checked);
+    Obj.Add('compareIndexes', chkIndexes.Checked);
+    Obj.Add('compareGenerators', chkGenerators.Checked);
+    Obj.Add('compareViews', chkViews.Checked);
+    Obj.Add('compareProcedures', chkProcedures.Checked);
+    Obj.Add('compareTriggers', chkTriggers.Checked);
+    Obj.Add('includeDrops', chkIncludeDrops.Checked);
+    Obj.Add('diffGridHeight', grdDiffs.Height);
+    SL.Text := Obj.FormatJSON([], 2);
+    try
+      SL.SaveToFile(SettingsFilePath, TEncoding.UTF8);
+    except
+    end;
+  finally
+    SL.Free;
+    Obj.Free;
+  end;
 end;
 
 function TDatabaseComparerFrame.ReadOptionsFromUI: TCompareOptions;
@@ -564,6 +661,7 @@ begin
   end;
 
   UpdateDialectForProfile(TgtProf);
+  SaveSettings;
   FreeAndNil(FResult);
   PopulateDiffGrid;
   SynEditScript.Clear;

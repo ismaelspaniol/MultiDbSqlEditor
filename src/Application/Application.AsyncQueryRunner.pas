@@ -52,6 +52,7 @@ type
     FAutoCommit: Boolean;
     FBatchSize: Integer;
     FMemoryLimitBytes: Int64;
+    FAllowDiskSpill: Boolean;
     FCursor: IResultSetCursor;
     FResult: TQueryResult;
     FErrorMessage: string;
@@ -73,7 +74,8 @@ type
       const AAutoCommit: Boolean;
       const ABatchSize: Integer;
       const AOnComplete: TAsyncSqlCompletedEvent;
-      const AMemoryLimitBytes: Int64 = DEFAULT_RESULT_MEMORY_LIMIT_BYTES
+      const AMemoryLimitBytes: Int64 = DEFAULT_RESULT_MEMORY_LIMIT_BYTES;
+      const AAllowDiskSpill: Boolean = False
     );
     constructor CreateFetchAll(
       const ASession: IDatabaseSession;
@@ -184,7 +186,8 @@ constructor TAsyncSqlWorker.CreateExecuteSQL(
   const AAutoCommit: Boolean;
   const ABatchSize: Integer;
   const AOnComplete: TAsyncSqlCompletedEvent;
-  const AMemoryLimitBytes: Int64
+  const AMemoryLimitBytes: Int64;
+  const AAllowDiskSpill: Boolean
 );
 begin
   inherited Create(True);
@@ -196,6 +199,7 @@ begin
   FAutoCommit := AAutoCommit;
   FBatchSize := ABatchSize;
   FMemoryLimitBytes := AMemoryLimitBytes;
+  FAllowDiskSpill := AAllowDiskSpill;
   FCursor := nil;
   FResult := nil;
   FErrorMessage := '';
@@ -330,9 +334,11 @@ begin
     if FMode = aqmExecuteSQL then
     begin
       UseCase := TExecuteQueryUseCase.Create;
+      GThreadAllowDiskSpill := FAllowDiskSpill;
       try
         FResult := UseCase.Execute(FSession, FSQL, FAutoCommit, FBatchSize, FMemoryLimitBytes);
       finally
+        GThreadAllowDiskSpill := False;
         UseCase.Free;
       end;
     end

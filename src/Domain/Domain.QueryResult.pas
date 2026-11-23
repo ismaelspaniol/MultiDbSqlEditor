@@ -5,7 +5,7 @@ unit Domain.QueryResult;
 interface
 
 uses
-  SysUtils, Math;
+  Classes, SysUtils, Math;
 
 const
   DEFAULT_RESULT_MEMORY_LIMIT_BYTES = Int64(128) * 1024 * 1024;
@@ -107,12 +107,27 @@ type
     FErrorCode: Integer;
     FCursor: IResultSetCursor;
     FPerformance: TQueryPerformanceStats;
+    FAllowDiskSpill: Boolean;
+    FSpilledToDisk: Boolean;
+    FSpillFilePath: string;
+    FSpillStream: TFileStream;
+    FSpillOffsets: array of Int64;
+    FSpillCapacity: Integer;
+    FCachedSpillRowIdx: Integer;
+    FCachedSpillRow: TQueryRow;
     procedure EnsureRowCapacity(const AMinCapacity: Integer);
+    procedure EnsureSpillCapacity(const AMinCapacity: Integer);
+    procedure WriteSpillRow(const ARow: TQueryRow);
+    function ReadSpillRow(const AIndex: Integer): TQueryRow;
+    function ActivateDiskSpill: Boolean;
   public
     constructor Create;
     destructor Destroy; override;
     procedure SetColumns(const AColumns: array of TQueryColumn);
     procedure AddRow(const ARow: TQueryRow);
+    procedure UpdateCell(const ARowIndex, AColIndex: Integer; const AIsNull: Boolean; const AText: string);
+    function InsertEmptyRow: Integer;
+    procedure DeleteRow(const ARowIndex: Integer);
     function ColumnCount: Integer;
     function RowCount: Integer;
     function GetColumn(const AIndex: Integer): TQueryColumn;
@@ -142,6 +157,9 @@ type
     property MemoryLimitReached: Boolean read FMemoryLimitReached;
     property SystemMemoryLow: Boolean read FSystemMemoryLow;
     property LimitMessage: string read FLimitMessage;
+    property AllowDiskSpill: Boolean read FAllowDiskSpill write FAllowDiskSpill;
+    property SpilledToDisk: Boolean read FSpilledToDisk;
+    property SpillFilePath: string read FSpillFilePath;
   end;
 
 function ComputeSystemMemoryReserveBytes(const ATotalBytes: Int64): Int64;
@@ -152,13 +170,42 @@ function TruncateGridCellText(const AText: string; const AMaxChars: Integer = MA
 function EstimateQueryRowBytes(const ARow: TQueryRow): Int64;
 function StripLeadingSqlComments(const ASQL: string): string;
 function IsSelectLikeSQLText(const ASQL: string; const AIncludeExplainShow: Boolean = False): Boolean;
+procedure TrimProcessMemoryUsage;
+
+threadvar
+  GThreadAllowDiskSpill: Boolean;
 
 implementation
 
 {$IFDEF WINDOWS}
 uses
   Windows;
+
+type
+  TMemoryStatusEx = record
+    dwLength: DWORD;
+    dwMemoryLoad: DWORD;
+    ullTotalPhys: QWord;
+    ullAvailPhys: QWord;
+    ullTotalPageFile: QWord;
+    ullAvailPageFile: QWord;
+    ullTotalVirtual: QWord;
+    ullAvailVirtual: QWord;
+    ullAvailExtendedVirtual: QWord;
+  end;
+
+function GlobalMemoryStatusEx(var lpBuffer: TMemoryStatusEx): BOOL; stdcall; external 'kernel32' name 'GlobalMemoryStatusEx';
 {$ENDIF}
+
+procedure TrimProcessMemoryUsage;
+begin
+  {$IFDEF WINDOWS}
+  try
+    SetProcessWorkingSetSize(GetCurrentProcess, PtrUInt(-1), PtrUInt(-1));
+  except
+  end;
+  {$ENDIF}
+end;
 
 { TQueryPerformanceStats }
 
@@ -495,11 +542,20 @@ begin
   FErrorCode := 0;
   FCursor := nil;
   FPerformance := TQueryPerformanceStats.Create;
+  FAllowDiskSpill := GThreadAllowDiskSpill;
+  FSpilledToDisk := False;
+  FSpillFilePath := '';
+  FSpillStream := nil;
+  FSpillCapacity := 0;
+  FCachedSpillRowIdx := -1;
 end;
 
 destructor TQueryResult.Destroy;
 begin
   CloseCursor;
+  FreeAndNil(FSpillStream);
+  if (FSpillFilePath <> '') and FileExists(FSpillFilePath) then
+    SysUtils.DeleteFile(FSpillFilePath);
   FPerformance.Free;
   inherited Destroy;
 end;
@@ -535,12 +591,192 @@ begin
     FColumns[I] := AColumns[I];
 end;
 
+procedure TQueryResult.EnsureSpillCapacity(const AMinCapacity: Integer);
+var
+  NewCap: Integer;
+begin
+  if AMinCapacity <= FSpillCapacity then
+    Exit;
+  NewCap := FSpillCapacity;
+  if NewCap < 256 then
+    NewCap := 256;
+  while NewCap < AMinCapacity do
+  begin
+    if NewCap > (MaxInt div 2) then
+    begin
+      NewCap := AMinCapacity;
+      Break;
+    end;
+    NewCap := NewCap * 2;
+  end;
+  SetLength(FSpillOffsets, NewCap);
+  FSpillCapacity := NewCap;
+end;
+
+procedure TQueryResult.WriteSpillRow(const ARow: TQueryRow);
+var
+  ColCnt, I, Len: Int32;
+  IsNullByte: Byte;
+  S: string;
+begin
+  if FSpillStream = nil then
+    Exit;
+  FSpillStream.Position := FSpillStream.Size;
+  ColCnt := Length(ARow);
+  FSpillStream.WriteBuffer(ColCnt, SizeOf(ColCnt));
+  for I := 0 to ColCnt - 1 do
+  begin
+    if ARow[I].IsNull then
+    begin
+      IsNullByte := 1;
+      FSpillStream.WriteBuffer(IsNullByte, 1);
+    end
+    else
+    begin
+      IsNullByte := 0;
+      FSpillStream.WriteBuffer(IsNullByte, 1);
+      S := ARow[I].AsText;
+      Len := Length(S);
+      FSpillStream.WriteBuffer(Len, SizeOf(Len));
+      if Len > 0 then
+        FSpillStream.WriteBuffer(S[1], Len);
+    end;
+  end;
+end;
+
+function TQueryResult.ReadSpillRow(const AIndex: Integer): TQueryRow;
+var
+  ColCnt, I, Len: Int32;
+  IsNullByte: Byte;
+  S: string;
+begin
+  if (AIndex = FCachedSpillRowIdx) and (Length(FCachedSpillRow) > 0) then
+    Exit(FCachedSpillRow);
+
+  Result := nil;
+  if (FSpillStream = nil) or (AIndex < 0) or (AIndex >= FRowCount) then
+    Exit;
+
+  FSpillStream.Position := FSpillOffsets[AIndex];
+  FSpillStream.ReadBuffer(ColCnt, SizeOf(ColCnt));
+  SetLength(Result, ColCnt);
+  for I := 0 to ColCnt - 1 do
+  begin
+    FSpillStream.ReadBuffer(IsNullByte, 1);
+    if IsNullByte <> 0 then
+    begin
+      Result[I].IsNull := True;
+      Result[I].AsText := '';
+    end
+    else
+    begin
+      Result[I].IsNull := False;
+      FSpillStream.ReadBuffer(Len, SizeOf(Len));
+      if Len > 0 then
+      begin
+        SetLength(S, Len);
+        FSpillStream.ReadBuffer(S[1], Len);
+        Result[I].AsText := S;
+      end
+      else
+        Result[I].AsText := '';
+    end;
+  end;
+  FCachedSpillRowIdx := AIndex;
+  FCachedSpillRow := Result;
+end;
+
+function TQueryResult.ActivateDiskSpill: Boolean;
+var
+  I: Integer;
+begin
+  if FSpilledToDisk then
+    Exit(True);
+  Result := False;
+  try
+    FSpillFilePath := IncludeTrailingPathDelimiter(GetTempDir(False)) +
+      Format('multidb_spill_%d_%d.tmp', [GetTickCount64, PtrUInt(Self)]);
+    FSpillStream := TFileStream.Create(FSpillFilePath, fmCreate or fmShareDenyNone);
+    EnsureSpillCapacity(FRowCount);
+    for I := 0 to FRowCount - 1 do
+    begin
+      FSpillOffsets[I] := FSpillStream.Size;
+      WriteSpillRow(FRows[I]);
+    end;
+    SetLength(FRows, 0);
+    FRowCapacity := 0;
+    FEstimatedMemoryBytes := 0;
+    FCachedSpillRowIdx := -1;
+    SetLength(FCachedSpillRow, 0);
+    FSpilledToDisk := True;
+    TrimProcessMemoryUsage;
+    Result := True;
+  except
+    FreeAndNil(FSpillStream);
+    Result := False;
+  end;
+end;
+
 procedure TQueryResult.AddRow(const ARow: TQueryRow);
 begin
+  if FSpilledToDisk then
+  begin
+    EnsureSpillCapacity(FRowCount + 1);
+    FSpillOffsets[FRowCount] := FSpillStream.Size;
+    WriteSpillRow(ARow);
+    Inc(FRowCount);
+    Exit;
+  end;
+
   EnsureRowCapacity(FRowCount + 1);
   FRows[FRowCount] := ARow;
   Inc(FRowCount);
   Inc(FEstimatedMemoryBytes, EstimateQueryRowBytes(ARow));
+end;
+
+procedure TQueryResult.UpdateCell(
+  const ARowIndex, AColIndex: Integer;
+  const AIsNull: Boolean;
+  const AText: string
+);
+begin
+  if (ARowIndex < 0) or (ARowIndex >= FRowCount) or
+     (AColIndex < 0) or (AColIndex >= Length(FColumns)) then
+    Exit;
+  if Length(FRows[ARowIndex]) <= AColIndex then
+    SetLength(FRows[ARowIndex], Length(FColumns));
+  FRows[ARowIndex][AColIndex].IsNull := AIsNull;
+  if AIsNull then
+    FRows[ARowIndex][AColIndex].AsText := ''
+  else
+    FRows[ARowIndex][AColIndex].AsText := AText;
+end;
+
+function TQueryResult.InsertEmptyRow: Integer;
+var
+  NewRow: TQueryRow;
+  I: Integer;
+begin
+  SetLength(NewRow, Length(FColumns));
+  for I := 0 to High(NewRow) do
+  begin
+    NewRow[I].IsNull := True;
+    NewRow[I].AsText := '';
+  end;
+  AddRow(NewRow);
+  Result := FRowCount - 1;
+end;
+
+procedure TQueryResult.DeleteRow(const ARowIndex: Integer);
+var
+  I: Integer;
+begin
+  if (ARowIndex < 0) or (ARowIndex >= FRowCount) then
+    Exit;
+  for I := ARowIndex to FRowCount - 2 do
+    FRows[I] := FRows[I + 1];
+  SetLength(FRows[FRowCount - 1], 0);
+  Dec(FRowCount);
 end;
 
 function TQueryResult.ColumnCount: Integer;
@@ -560,7 +796,10 @@ end;
 
 function TQueryResult.GetRow(const AIndex: Integer): TQueryRow;
 begin
-  Result := FRows[AIndex];
+  if FSpilledToDisk then
+    Result := ReadSpillRow(AIndex)
+  else
+    Result := FRows[AIndex];
 end;
 
 function TQueryResult.TotalTrackedMemoryBytes: Int64;
@@ -576,8 +815,15 @@ begin
   if FMemoryLimitReached then
     Exit(True);
 
+  if FSpilledToDisk then
+    Exit(False);
+
   if (FMemoryLimitBytes > 0) and (TotalTrackedMemoryBytes >= FMemoryLimitBytes) then
+  begin
+    if FAllowDiskSpill and ActivateDiskSpill then
+      Exit(False);
     Exit(True);
+  end;
 
   NowTick := GetTickCount64;
   if (not FHasCheckedOsMem) or
@@ -590,6 +836,8 @@ begin
     if GetSystemMemoryInfo(SysMem) and SysMem.Available and
        (SysMem.AvailableBytes <= SysMem.ReserveBytes) then
     begin
+      if FAllowDiskSpill and ActivateDiskSpill then
+        Exit(False);
       MarkSystemMemoryLow(SysMem);
       Exit(True);
     end;

@@ -1,0 +1,294 @@
+object ProcedureDebugForm: TProcedureDebugForm
+  Left = 220
+  Height = 720
+  Top = 100
+  Width = 1120
+  Caption = 'Debug de Procedure (Firebird PSQL)'
+  ClientHeight = 720
+  ClientWidth = 1120
+  KeyPreview = True
+  Position = poMainFormCenter
+  OnClose = FormClose
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  OnKeyDown = FormKeyDown
+  LCLVersion = '3.6.0.0'
+  object pnlToolbar: TPanel
+    Left = 0
+    Height = 40
+    Top = 0
+    Width = 1120
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 40
+    ClientWidth = 1120
+    TabOrder = 0
+    object btnRun: TButton
+      Left = 8
+      Height = 28
+      Top = 6
+      Width = 110
+      Caption = 'Continuar (F9)'
+      TabOrder = 0
+      OnClick = btnRunClick
+    end
+    object btnStepOver: TButton
+      Left = 124
+      Height = 28
+      Top = 6
+      Width = 112
+      Caption = 'Step Over (F8)'
+      TabOrder = 1
+      OnClick = btnStepOverClick
+    end
+    object btnStepInto: TButton
+      Left = 242
+      Height = 28
+      Top = 6
+      Width = 110
+      Caption = 'Step Into (F7)'
+      TabOrder = 2
+      OnClick = btnStepIntoClick
+    end
+    object btnRunToCursor: TButton
+      Left = 358
+      Height = 28
+      Top = 6
+      Width = 118
+      Caption = 'Até Cursor (F4)'
+      TabOrder = 3
+      OnClick = btnRunToCursorClick
+    end
+    object btnToggleBp: TButton
+      Left = 482
+      Height = 28
+      Top = 6
+      Width = 122
+      Caption = 'Breakpoint (F5)'
+      TabOrder = 4
+      OnClick = btnToggleBpClick
+    end
+    object btnRestart: TButton
+      Left = 610
+      Height = 28
+      Top = 6
+      Width = 122
+      Caption = 'Reiniciar (Ctrl+F2)'
+      TabOrder = 5
+      OnClick = btnRestartClick
+    end
+    object chkRollback: TCheckBox
+      Left = 744
+      Height = 19
+      Top = 10
+      Width = 155
+      Caption = 'Rollback automático'
+      Checked = True
+      State = cbChecked
+      TabOrder = 6
+    end
+    object lblStatus: TLabel
+      Left = 908
+      Height = 15
+      Top = 12
+      Width = 200
+      Anchors = [akTop, akLeft, akRight]
+      AutoSize = False
+      Caption = 'Pronto'
+      Font.Style = [fsBold]
+      ParentFont = False
+    end
+  end
+  object pnlMain: TPanel
+    Left = 0
+    Height = 492
+    Top = 40
+    Width = 1120
+    Align = alClient
+    BevelOuter = bvNone
+    ClientHeight = 492
+    ClientWidth = 1120
+    TabOrder = 1
+    object SynEdit1: TSynEdit
+      Left = 0
+      Height = 492
+      Top = 0
+      Width = 710
+      Align = alClient
+      Font.Height = -13
+      Font.Name = 'Consolas'
+      Font.Pitch = fpFixed
+      Font.Quality = fqCleartype
+      ParentColor = False
+      ParentFont = False
+      TabOrder = 0
+      Gutter.Width = 54
+      Gutter.MouseActions = <>
+      Highlighter = SynSQLSyn1
+      ReadOnly = True
+      RightEdge = 120
+      OnGutterClick = SynEdit1GutterClick
+      OnSpecialLineColors = SynEdit1SpecialLineColors
+    end
+    object SplitterV: TSplitter
+      Left = 710
+      Height = 492
+      Top = 0
+      Width = 5
+      Align = alRight
+      ResizeAnchor = akRight
+    end
+    object pnlInspector: TPanel
+      Left = 715
+      Height = 492
+      Top = 0
+      Width = 405
+      Align = alRight
+      BevelOuter = bvNone
+      ClientHeight = 492
+      ClientWidth = 405
+      TabOrder = 1
+      object pnlVars: TPanel
+        Left = 0
+        Height = 290
+        Top = 0
+        Width = 405
+        Align = alClient
+        BevelOuter = bvNone
+        ClientHeight = 290
+        ClientWidth = 405
+        TabOrder = 0
+        object lblVars: TLabel
+          Left = 0
+          Height = 22
+          Top = 0
+          Width = 405
+          Align = alTop
+          Caption = ' Variáveis e Parâmetros'
+          Font.Style = [fsBold]
+          Layout = tlCenter
+          ParentFont = False
+        end
+        object gridVars: TStringGrid
+          Left = 0
+          Height = 268
+          Top = 22
+          Width = 405
+          Align = alClient
+          ColCount = 4
+          DefaultRowHeight = 22
+          FixedCols = 0
+          Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goColSizing, goRowSelect]
+          RowCount = 1
+          TabOrder = 0
+          OnPrepareCanvas = gridVarsPrepareCanvas
+        end
+      end
+      object SplitterVars: TSplitter
+        Cursor = crVSplit
+        Left = 0
+        Height = 5
+        Top = 290
+        Width = 405
+        Align = alBottom
+        ResizeAnchor = akBottom
+      end
+      object pnlFields: TPanel
+        Left = 0
+        Height = 197
+        Top = 295
+        Width = 405
+        Align = alBottom
+        BevelOuter = bvNone
+        ClientHeight = 197
+        ClientWidth = 405
+        TabOrder = 1
+        object lblFields: TLabel
+          Left = 0
+          Height = 22
+          Top = 0
+          Width = 405
+          Align = alTop
+          Caption = ' Campos do Cursor Atual (SELECT / FOR SELECT)'
+          Font.Style = [fsBold]
+          Layout = tlCenter
+          ParentFont = False
+        end
+        object gridFields: TStringGrid
+          Left = 0
+          Height = 175
+          Top = 22
+          Width = 405
+          Align = alClient
+          ColCount = 2
+          DefaultRowHeight = 22
+          FixedCols = 0
+          Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goColSizing, goRowSelect]
+          RowCount = 1
+          TabOrder = 0
+        end
+      end
+    end
+  end
+  object SplitterH: TSplitter
+    Cursor = crVSplit
+    Left = 0
+    Height = 5
+    Top = 532
+    Width = 1120
+    Align = alBottom
+    ResizeAnchor = akBottom
+  end
+  object pgBottom: TPageControl
+    Left = 0
+    Height = 183
+    Top = 537
+    Width = 1120
+    ActivePage = tsResults
+    Align = alBottom
+    TabIndex = 0
+    TabOrder = 2
+    object tsResults: TTabSheet
+      Caption = 'Resultados (SUSPEND)'
+      ClientHeight = 155
+      ClientWidth = 1112
+      object gridResults: TStringGrid
+        Left = 0
+        Height = 155
+        Top = 0
+        Width = 1112
+        Align = alClient
+        DefaultRowHeight = 22
+        FixedCols = 0
+        Options = [goFixedVertLine, goFixedHorzLine, goVertLine, goHorzLine, goColSizing, goRowSelect]
+        RowCount = 1
+        TabOrder = 0
+      end
+    end
+    object tsLog: TTabSheet
+      Caption = 'SQL Executado / Log'
+      ClientHeight = 155
+      ClientWidth = 1112
+      object memLog: TMemo
+        Left = 0
+        Height = 155
+        Top = 0
+        Width = 1112
+        Align = alClient
+        Font.Height = -12
+        Font.Name = 'Consolas'
+        ParentFont = False
+        ReadOnly = True
+        ScrollBars = ssBoth
+        TabOrder = 0
+      end
+    end
+  end
+  object SynSQLSyn1: TSynSQLSyn
+    DefaultFilter = 'SQL Files (*.sql)|*.sql'
+    Enabled = False
+    SQLDialect = sqlInterbase6
+    Left = 104
+    Top = 96
+  end
+end

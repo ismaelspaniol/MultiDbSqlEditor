@@ -10,10 +10,13 @@ uses
   SynEdit, SynHighlighterSQL,
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
+  Domain.QueryResult,
   Domain.Interfaces,
   Domain.ScriptExecutionTypes,
   Application.AsyncQueryRunner,
-  Application.ScriptExecutorUseCase;
+  Application.ScriptExecutorUseCase,
+  Presentation.SqlCompletionController,
+  Presentation.SqlObjectLinkController;
 
 const
   MAX_EDITOR_DIRECT_LOAD_BYTES = 2 * 1024 * 1024; // 2 MB
@@ -130,7 +133,14 @@ type
     FEditorSplitRatio: Double;
     FIsAdjustingSplit: Boolean;
     FUpdatingLayout: Boolean;
+    FCompletionCtrl: TSqlCompletionController;
+    FLinkCtrl: TSqlObjectLinkController;
+    FOnOpenObject: TOpenDbObjectLinkEvent;
     function SelectedProfile: TConnectionProfile;
+    function ExecuteCompletionMetadataQuery(const ASQL: string): TQueryResult;
+    procedure HandleOpenObjectLink(const AProfile: TConnectionProfile;
+      const AKind: TSchemaObjectKind; const AObjectName: string);
+    procedure ClearMetadataCache;
     function SelectedCommitMode: TScriptCommitMode;
     function SelectedErrorPolicy: TScriptErrorPolicy;
     procedure CollectCheckedQueuePaths(const ATarget: TStrings);
@@ -175,6 +185,8 @@ type
       const AConnections: TConnectionProfileList;
       const AInitialProfileId: string = ''
     );
+    property OnOpenObject: TOpenDbObjectLinkEvent
+      read FOnOpenObject write FOnOpenObject;
     procedure RefreshConnections(const AConnections: TConnectionProfileList);
     procedure SetScriptText(const AScriptText: string);
     function ActiveProfileId: string;
@@ -187,6 +199,9 @@ type
   end;
 
 implementation
+
+uses
+  Presentation.TabHelpers;
 
 {$R *.lfm}
 
@@ -239,6 +254,28 @@ begin
   SynSQLSyn1.Enabled := True;
   SynEdit1.Highlighter := SynSQLSyn1;
   SynEdit1.Keystrokes.ResetDefaults;
+
+  if FLinkCtrl = nil then
+    FLinkCtrl := TSqlObjectLinkController.Create(
+      Self,
+      SynEdit1,
+      SynSQLSyn1,
+      @SelectedProfile,
+      @ExecuteCompletionMetadataQuery,
+      @HandleOpenObjectLink
+    );
+  FLinkCtrl.ClearCache;
+
+  if FCompletionCtrl = nil then
+  begin
+    FCompletionCtrl := TSqlCompletionController.Create(
+      Self,
+      SynEdit1,
+      @SelectedProfile,
+      @ExecuteCompletionMetadataQuery
+    );
+    FCompletionCtrl.IncludeProceduralKeywords := True;
+  end;
 
   ConfigureGrid;
   RefreshConnections(AConnections);
@@ -619,7 +656,7 @@ begin
     Result := FBaseTabCaption
   else if Parent is TTabSheet then
   begin
-    Cap := TTabSheet(Parent).Caption;
+    Cap := StripEditorTabCloseSuffix(TTabSheet(Parent).Caption);
     if Copy(Cap, Length(Cap) - Length(RunningSuffix) + 1, Length(RunningSuffix)) = RunningSuffix then
       Result := Copy(Cap, 1, Length(Cap) - Length(RunningSuffix))
     else
@@ -681,9 +718,9 @@ begin
     if Parent is TTabSheet then
     begin
       if FBaseTabCaption <> '' then
-        TTabSheet(Parent).Caption := FBaseTabCaption + ' (Executando...)'
+        SetTabSheetTitle(TTabSheet(Parent), FBaseTabCaption + ' (Executando...)')
       else
-        TTabSheet(Parent).Caption := 'Executando...';
+        SetTabSheetTitle(TTabSheet(Parent), 'Executando...');
     end;
     lblTxStatus.Font.Color := clNavy;
     lblTxStatus.Caption := 'Executando... 0.0s';
@@ -697,7 +734,7 @@ begin
     FWorker := nil;
     FCancelRequested := False;
     if (Parent is TTabSheet) and (FBaseTabCaption <> '') then
-      TTabSheet(Parent).Caption := FBaseTabCaption;
+      SetTabSheetTitle(TTabSheet(Parent), FBaseTabCaption);
     FBaseTabCaption := '';
     UpdateTransactionUI;
   end;
@@ -730,6 +767,7 @@ begin
   begin
     FActiveProfileId := Profile.Id;
     ApplyHighlighterForProfile(Profile);
+    ClearMetadataCache;
     LogMessage('Conexão alterada para: ' + Profile.Name);
   end
   else
@@ -1607,6 +1645,51 @@ begin
       lblProgress.Caption := Format('Executando #%d/%d (%s | %s): %s',
         [CurIdx, CurTot, FormatThroughputText, ElapsedStr, CurSql]);
   end;
+end;
+
+procedure TScriptExecutorFrame.ClearMetadataCache;
+begin
+  if FCompletionCtrl <> nil then
+    FCompletionCtrl.ClearMetadataCache;
+  if FLinkCtrl <> nil then
+    FLinkCtrl.ClearCache;
+end;
+
+function TScriptExecutorFrame.ExecuteCompletionMetadataQuery(const ASQL: string): TQueryResult;
+var
+  Profile: TConnectionProfile;
+  Provider: IDatabaseProvider;
+  TempSession: IDatabaseSession;
+begin
+  Result := nil;
+  Profile := SelectedProfile;
+  if (Profile = nil) or (FFactory = nil) then
+    Exit;
+
+  Provider := FFactory.GetProvider(Profile.DatabaseType);
+  TempSession := Provider.CreateSession(Profile);
+  try
+    TempSession.Connect;
+    Result := TempSession.ExecuteSQL(ASQL, False, 0);
+  finally
+    try
+      if TempSession.InTransaction then
+        TempSession.Rollback;
+      TempSession.Disconnect;
+    except
+    end;
+    TempSession := nil;
+  end;
+end;
+
+procedure TScriptExecutorFrame.HandleOpenObjectLink(
+  const AProfile: TConnectionProfile;
+  const AKind: TSchemaObjectKind;
+  const AObjectName: string
+);
+begin
+  if Assigned(FOnOpenObject) then
+    FOnOpenObject(AProfile, AKind, AObjectName);
 end;
 
 end.

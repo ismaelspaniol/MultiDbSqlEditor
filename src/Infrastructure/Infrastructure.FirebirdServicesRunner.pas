@@ -673,7 +673,32 @@ begin
     FillChar(Status[0], SizeOf(Status), 0);
     if isc_service_start(@Status[0], @SvcHandle, nil, Word(Length(SPB)), PAnsiChar(SPB)) <> 0 then
     begin
-      AMessage := 'Erro ao executar manutenção Firebird: ' + FormatStatusError(@Status[0]);
+      ErrMsg := FormatStatusError(@Status[0]);
+      if (AReq.FbAction in [fraValidateCheckOnly, fraValidateFull]) and
+         (Pos('secondary server attachments cannot validate', LowerCase(ErrMsg)) > 0) then
+      begin
+        if Assigned(AOnLog) then
+          AOnLog('Banco possui outras conexões ativas; tentando validação online (isc_action_svc_validate)...');
+        SPB := Chr(30 { isc_action_svc_validate }) +
+          SpbString(isc_spb_dbname, AReq.Profile.Database) +
+          SpbInt32(5 { isc_spb_val_lock_timeout }, 10);
+        FillChar(Status[0], SizeOf(Status), 0);
+        if isc_service_start(@Status[0], @SvcHandle, nil, Word(Length(SPB)), PAnsiChar(SPB)) <> 0 then
+        begin
+          AMessage := 'Erro ao executar manutenção Firebird: ' + ErrMsg +
+            LineEnding + 'Dica: A validação gfix (-v) exige acesso exclusivo ao banco (feche outras conexões ou faça Shutdown antes). ' +
+            'Tentativa de validação online também falhou: ' + FormatStatusError(@Status[0]);
+          Exit;
+        end;
+        Result := WaitServiceFinish(SvcHandle, AOnLog, ACancelCheck, ErrMsg);
+        if Result then
+          AMessage := FirebirdRepairActionTitle(AReq.FbAction) + ' (validação online) — concluído sem erros.'
+        else
+          AMessage := ErrMsg;
+        Exit;
+      end;
+
+      AMessage := 'Erro ao executar manutenção Firebird: ' + ErrMsg;
       Exit;
     end;
 

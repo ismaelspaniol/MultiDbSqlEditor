@@ -152,7 +152,9 @@ begin
     Exit;
 
   if Profile.DatabaseType = dtPostgreSQL then
-    SQL := 'SELECT table_name FROM information_schema.tables WHERE table_schema = ''public'' ORDER BY 1'
+    SQL := 'SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() ORDER BY 1'
+  else if Profile.DatabaseType = dtMariaDB then
+    SQL := 'SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY 1'
   else
     SQL := 'SELECT TRIM(RDB$RELATION_NAME) FROM RDB$RELATIONS WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 ORDER BY 1';
 
@@ -512,7 +514,12 @@ begin
   SafeTable := StringReplace(CacheKey, '''', '''''', [rfReplaceAll]);
   if Profile.DatabaseType = dtPostgreSQL then
     SQL := Format(
-      'SELECT column_name FROM information_schema.columns WHERE table_schema = ''public'' AND lower(table_name) = lower(''%s'') ORDER BY ordinal_position',
+      'SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND lower(table_name) = lower(''%s'') ORDER BY ordinal_position',
+      [SafeTable]
+    )
+  else if Profile.DatabaseType = dtMariaDB then
+    SQL := Format(
+      'SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND LOWER(table_name) = LOWER(''%s'') ORDER BY ordinal_position',
       [SafeTable]
     )
   else

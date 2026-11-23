@@ -967,6 +967,12 @@ object TableEditorFrame: TTableEditorFrame
           end        
           item
             Control = btnOpenDataInSql
+          end        
+          item
+            Control = btnDataCommit
+          end        
+          item
+            Control = btnDataRollback
           end>
         FlowLayout = tlCenter
         FlowStyle = fsLeftRightTopBottom
@@ -1046,12 +1052,44 @@ object TableEditorFrame: TTableEditorFrame
           Width = 132
           Anchors = []
           AutoSize = True
+          BorderSpacing.Right = 8
           BorderSpacing.Top = 2
           BorderSpacing.Bottom = 2
           Caption = 'Abrir no Editor SQL'
           Constraints.MinHeight = 26
           TabOrder = 3
           OnClick = btnOpenDataInSqlClick
+        end
+        object btnDataCommit: TButton
+          Left = 722
+          Height = 26
+          Top = 2
+          Width = 76
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Right = 4
+          BorderSpacing.Top = 2
+          BorderSpacing.Bottom = 2
+          Caption = 'Commit'
+          Constraints.MinHeight = 26
+          Enabled = False
+          TabOrder = 4
+          OnClick = btnDataCommitClick
+        end
+        object btnDataRollback: TButton
+          Left = 802
+          Height = 26
+          Top = 2
+          Width = 80
+          Anchors = []
+          AutoSize = True
+          BorderSpacing.Top = 2
+          BorderSpacing.Bottom = 2
+          Caption = 'Rollback'
+          Constraints.MinHeight = 26
+          Enabled = False
+          TabOrder = 5
+          OnClick = btnDataRollbackClick
         end
       end
     end

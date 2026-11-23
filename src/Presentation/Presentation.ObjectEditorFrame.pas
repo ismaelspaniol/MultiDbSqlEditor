@@ -10,10 +10,12 @@ uses
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
   Domain.QueryResult,
+  Domain.Interfaces,
   Application.ManageDatabaseObjectsUseCase,
   Presentation.QueryResultGridFrame,
   Presentation.SqlCompletionController,
-  Presentation.ProcedureParamsForm;
+  Presentation.ProcedureParamsForm,
+  Presentation.ProcedureDebugForm;
 
 type
   TObjectChangedEvent = procedure(const AProfileId: string; const AKind: TSchemaObjectKind) of object;
@@ -23,8 +25,13 @@ type
   TObjectEditorFrame = class(TFrame)
     pnlToolbar: TFlowPanel;
     lblObjectTitle: TLabel;
+    pnlCompileWrap: TPanel;
     btnCompile: TButton;
     btnExecute: TButton;
+    btnDebug: TButton;
+    btnCommit: TButton;
+    btnRollback: TButton;
+    chkAutoCommit: TCheckBox;
     btnReload: TButton;
     btnCopyDDL: TButton;
     btnViewData: TButton;
@@ -38,10 +45,14 @@ type
     SynSQLSyn1: TSynSQLSyn;
     procedure btnCompileClick(Sender: TObject);
     procedure btnExecuteClick(Sender: TObject);
+    procedure btnDebugClick(Sender: TObject);
+    procedure btnCommitClick(Sender: TObject);
+    procedure btnRollbackClick(Sender: TObject);
     procedure btnReloadClick(Sender: TObject);
     procedure btnCopyDDLClick(Sender: TObject);
     procedure btnViewDataClick(Sender: TObject);
     procedure btnDropObjectClick(Sender: TObject);
+    procedure SynEdit1Change(Sender: TObject);
     procedure SynEdit1KeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure pnlToolbarResize(Sender: TObject);
   private
@@ -57,9 +68,16 @@ type
     FLastResult: TQueryResult;
     FLastParamValues: TProcedureParamValueArray;
     FLastParamProcName: string;
+    FExecSession: IDatabaseSession;
+    FOriginalDDL: string;
+    FIsDirty: Boolean;
+    FIsLoadingDDL: Boolean;
     FOnObjectChanged: TObjectChangedEvent;
     FOnOpenViewData: TOpenViewDataEvent;
     procedure LogMessage(const AMsg: string);
+    procedure SetDirty(const ADirty: Boolean);
+    procedure CloseExecSession(const ARollbackIfPending: Boolean = True);
+    procedure UpdateTransactionButtons;
     procedure UpdateToolbarLayout;
     procedure UpdateTitleAndButtons;
     function GetCompletionProfile: TConnectionProfile;
@@ -86,10 +104,14 @@ type
 
 implementation
 
+uses
+  Presentation.TabHelpers;
+
 {$R *.lfm}
 
 destructor TObjectEditorFrame.Destroy;
 begin
+  CloseExecSession(True);
   if FResultGrid <> nil then
     FResultGrid.SetResult(nil, False, False);
   FreeAndNil(FLastResult);
@@ -343,8 +365,16 @@ begin
     lblObjectTitle.Caption := Format('[%s] %s: %s', [FProfile.Name, KindLabel, FObjectName]);
 
   btnCompile.Visible := not (FObjectKind in [sokTables, sokGenerators]);
+  if pnlCompileWrap <> nil then
+    pnlCompileWrap.Visible := btnCompile.Visible;
   btnExecute.Visible := (FObjectKind = sokProcedures);
   btnExecute.Enabled := (FObjectKind = sokProcedures) and (not FIsNewObject);
+  btnDebug.Visible := (FObjectKind = sokProcedures) and (FProfile.DatabaseType = dtFirebird);
+  btnDebug.Enabled := (FObjectKind = sokProcedures) and (FProfile.DatabaseType = dtFirebird) and (not FIsNewObject);
+  btnCommit.Visible := (FObjectKind = sokProcedures);
+  btnRollback.Visible := (FObjectKind = sokProcedures);
+  chkAutoCommit.Visible := (FObjectKind = sokProcedures);
+  UpdateTransactionButtons;
   btnReload.Enabled := not FIsNewObject;
   btnCopyDDL.Enabled := True;
   btnDropObject.Visible := not (FObjectKind in [sokTables, sokGenerators]);
@@ -394,7 +424,14 @@ begin
   SynSQLSyn1.Enabled := True;
   SynEdit1.Highlighter := SynSQLSyn1;
   SynEdit1.Keystrokes.ResetDefaults;
-  SynEdit1.Lines.Text := AInitialDDL;
+  FOriginalDDL := AInitialDDL;
+  FIsLoadingDDL := True;
+  try
+    SynEdit1.Lines.Text := AInitialDDL;
+  finally
+    FIsLoadingDDL := False;
+  end;
+  SetDirty(False);
 
   if FResultGrid = nil then
   begin
@@ -460,6 +497,8 @@ begin
   try
     if FUseCase.CompileDDL(FProfile, SynEdit1.Lines.Text, Msg) then
     begin
+      FOriginalDDL := SynEdit1.Lines.Text;
+      SetDirty(False);
       LogMessage('SUCESSO: ' + Msg);
       ClearMetadataCache;
       if FIsNewObject then
@@ -479,7 +518,7 @@ begin
             else
               Prefix := 'DDL';
             end;
-            TTabSheet(Parent).Caption := Prefix + ': ' + FObjectName;
+            SetTabSheetTitle(TTabSheet(Parent), Prefix + ': ' + FObjectName);
           end;
         end;
       end;
@@ -533,20 +572,31 @@ begin
       Exit;
     FLastParamValues := ParamValues;
     FLastParamProcName := FObjectName;
+    chkAutoCommit.Checked := AutoCommit;
   end
   else
   begin
     SetLength(ParamValues, 0);
-    AutoCommit := True;
+    AutoCommit := chkAutoCommit.Checked;
   end;
 
   Screen.Cursor := crHourGlass;
   try
     try
-      Res := FUseCase.ExecuteProcedure(FProfile, Meta, ParamValues, AutoCommit, ExecutedSQL);
+      ExecutedSQL := FUseCase.BuildExecuteProcedureSQL(Meta, ParamValues);
+      if FExecSession = nil then
+        FExecSession := FUseCase.CreateSession(FProfile);
+      if not FExecSession.IsConnected then
+        FExecSession.Connect;
+      Res := FExecSession.ExecuteSQL(ExecutedSQL, AutoCommit, 0);
+      if (Res <> nil) and Res.Success and (not Meta.HasOutput) then
+        Res.HasResultSet := False;
+      if AutoCommit or (not FExecSession.InTransaction) then
+        CloseExecSession(False);
     except
       on E: Exception do
       begin
+        UpdateTransactionButtons;
         LogMessage('ERRO AO EXECUTAR: ' + E.Message);
         pgBottom.ActivePage := tsLog;
         Exit;
@@ -554,6 +604,7 @@ begin
     end;
   finally
     Screen.Cursor := crDefault;
+    UpdateTransactionButtons;
   end;
 
   LogMessage('Executando: ' + ExecutedSQL);
@@ -617,6 +668,117 @@ begin
   end;
 end;
 
+procedure TObjectEditorFrame.CloseExecSession(const ARollbackIfPending: Boolean);
+begin
+  if FExecSession = nil then
+    Exit;
+  try
+    if ARollbackIfPending and FExecSession.InTransaction then
+      FExecSession.Rollback;
+  except
+  end;
+  try
+    if FExecSession.IsConnected then
+      FExecSession.Disconnect;
+  except
+  end;
+  FExecSession := nil;
+  UpdateTransactionButtons;
+end;
+
+procedure TObjectEditorFrame.UpdateTransactionButtons;
+var
+  HasPendingTx: Boolean;
+begin
+  HasPendingTx := (FExecSession <> nil) and FExecSession.IsConnected and FExecSession.InTransaction;
+  if btnCommit <> nil then
+    btnCommit.Enabled := HasPendingTx;
+  if btnRollback <> nil then
+    btnRollback.Enabled := HasPendingTx;
+end;
+
+procedure TObjectEditorFrame.btnCommitClick(Sender: TObject);
+begin
+  if (FExecSession = nil) or (not FExecSession.InTransaction) then
+    Exit;
+  Screen.Cursor := crHourGlass;
+  try
+    FExecSession.Commit;
+    LogMessage('COMMIT realizado com sucesso.');
+    CloseExecSession(False);
+  except
+    on E: Exception do
+    begin
+      LogMessage('ERRO AO REALIZAR COMMIT: ' + E.Message);
+      pgBottom.ActivePage := tsLog;
+    end;
+  end;
+  Screen.Cursor := crDefault;
+  UpdateTransactionButtons;
+end;
+
+procedure TObjectEditorFrame.btnRollbackClick(Sender: TObject);
+begin
+  if (FExecSession = nil) or (not FExecSession.InTransaction) then
+    Exit;
+  Screen.Cursor := crHourGlass;
+  try
+    FExecSession.Rollback;
+    LogMessage('ROLLBACK realizado com sucesso.');
+    CloseExecSession(False);
+  except
+    on E: Exception do
+    begin
+      LogMessage('ERRO AO REALIZAR ROLLBACK: ' + E.Message);
+      pgBottom.ActivePage := tsLog;
+    end;
+  end;
+  Screen.Cursor := crDefault;
+  UpdateTransactionButtons;
+end;
+
+procedure TObjectEditorFrame.btnDebugClick(Sender: TObject);
+var
+  Meta: TProcedureMetadata;
+  PrevValues, ParamValues: TProcedureParamValueArray;
+  AutoCommit: Boolean;
+begin
+  if (FUseCase = nil) or (FProfile = nil) or (FObjectKind <> sokProcedures) or
+     (FProfile.DatabaseType <> dtFirebird) or FIsNewObject then
+    Exit;
+
+  Screen.Cursor := crHourGlass;
+  try
+    try
+      Meta := FUseCase.LoadProcedureMetadata(FProfile, FObjectName);
+    except
+      on E: Exception do
+      begin
+        LogMessage('ERRO AO CARREGAR METADADOS PARA DEBUG: ' + E.Message);
+        pgBottom.ActivePage := tsLog;
+        Exit;
+      end;
+    end;
+  finally
+    Screen.Cursor := crDefault;
+  end;
+
+  SetLength(PrevValues, 0);
+  if Length(Meta.InputParams) > 0 then
+  begin
+    if SameText(FLastParamProcName, FObjectName) then
+      PrevValues := FLastParamValues;
+    if not TProcedureParamsForm.Execute(Meta, FUseCase, PrevValues, ParamValues, AutoCommit) then
+      Exit;
+    FLastParamValues := ParamValues;
+    FLastParamProcName := FObjectName;
+  end
+  else
+    SetLength(ParamValues, 0);
+
+  TProcedureDebugForm.Execute(FProfile, FUseCase, Meta, ParamValues, SynEdit1.Lines.Text);
+end;
+
 procedure TObjectEditorFrame.btnReloadClick(Sender: TObject);
 var
   DDL: string;
@@ -628,7 +790,14 @@ begin
   try
     try
       DDL := FUseCase.LoadObjectDDL(FProfile, FObjectKind, FObjectName);
-      SynEdit1.Lines.Text := DDL;
+      FOriginalDDL := DDL;
+      FIsLoadingDDL := True;
+      try
+        SynEdit1.Lines.Text := DDL;
+      finally
+        FIsLoadingDDL := False;
+      end;
+      SetDirty(False);
       LogMessage('Definição recarregada do banco de dados.');
     except
       on E: Exception do
@@ -690,6 +859,34 @@ begin
   end;
 end;
 
+procedure TObjectEditorFrame.SetDirty(const ADirty: Boolean);
+begin
+  FIsDirty := ADirty;
+  if (pnlCompileWrap = nil) or (btnCompile = nil) then
+    Exit;
+  if FIsDirty then
+  begin
+    pnlCompileWrap.ParentColor := False;
+    pnlCompileWrap.Color := RGBToColor(245, 158, 11);
+    btnCompile.Caption := '* Compilar / Salvar (F9)';
+    btnCompile.Font.Style := [fsBold];
+  end
+  else
+  begin
+    pnlCompileWrap.ParentColor := True;
+    btnCompile.Caption := 'Compilar / Salvar (F9)';
+    btnCompile.Font.Style := [];
+  end;
+  UpdateToolbarLayout;
+end;
+
+procedure TObjectEditorFrame.SynEdit1Change(Sender: TObject);
+begin
+  if FIsLoadingDDL or SynEdit1.ReadOnly then
+    Exit;
+  SetDirty(SynEdit1.Lines.Text <> FOriginalDDL);
+end;
+
 procedure TObjectEditorFrame.SynEdit1KeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
   if (Key = VK_F9) and (Shift = []) then
@@ -707,6 +904,12 @@ begin
   begin
     Key := 0;
     btnExecuteClick(Sender);
+  end
+  else if (Key = VK_F7) and (Shift = []) and
+          (FObjectKind = sokProcedures) and btnDebug.Visible and btnDebug.Enabled then
+  begin
+    Key := 0;
+    btnDebugClick(Sender);
   end;
 end;
 

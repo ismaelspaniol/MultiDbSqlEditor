@@ -22,12 +22,14 @@ type
     FPassword: string;
     FCharset: string;
     FRole: string;
+    FSchema: string;
     FClientLibraryPath: string;
     FFirebirdVersion: TFirebirdVersion;
   public
     constructor Create;
     function Clone: TConnectionProfile;
     procedure Validate;
+    function EffectiveSchema: string;
     { Faz o parse de strings como "127.0.0.1/3055:D:\caminho\banco.fdb" ou "host:banco.fdb" }
     class function TryParseFirebirdString(
       const AInput: string;
@@ -47,6 +49,8 @@ type
     property Password: string read FPassword write FPassword;
     property Charset: string read FCharset write FCharset;
     property Role: string read FRole write FRole;
+    { No PostgreSQL: schema padrão da sessão (padrão: 'public') }
+    property Schema: string read FSchema write FSchema;
     { Caminho opcional para fbclient.dll ou libpq.dll }
     property ClientLibraryPath: string read FClientLibraryPath write FClientLibraryPath;
     property FirebirdVersion: TFirebirdVersion read FFirebirdVersion write FFirebirdVersion;
@@ -61,7 +65,15 @@ begin
   FHost := 'localhost';
   FPort := DefaultPortForDatabase(FDatabaseType);
   FCharset := 'UTF8';
+  FSchema := 'public';
   FFirebirdVersion := fvAuto;
+end;
+
+function TConnectionProfile.EffectiveSchema: string;
+begin
+  Result := Trim(FSchema);
+  if Result = '' then
+    Result := 'public';
 end;
 
 function TConnectionProfile.Clone: TConnectionProfile;
@@ -77,6 +89,7 @@ begin
   Result.Password := FPassword;
   Result.Charset := FCharset;
   Result.Role := FRole;
+  Result.Schema := FSchema;
   Result.ClientLibraryPath := FClientLibraryPath;
   Result.FirebirdVersion := FFirebirdVersion;
 end;

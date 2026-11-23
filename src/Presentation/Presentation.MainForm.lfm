@@ -285,17 +285,6 @@ object MainForm: TMainForm
         TabOrder = 1
         OnClick = btnNewTabClick
       end
-      object btnCloseTab: TButton
-        Left = 192
-        Height = 28
-        Top = 0
-        Width = 86
-        AutoSize = True
-        Caption = 'Fechar Aba'
-        Constraints.MinHeight = 28
-        TabOrder = 2
-        OnClick = btnCloseTabClick
-      end
       object btnMonitorDb: TButton
         Left = 284
         Height = 28
@@ -348,6 +337,7 @@ object MainForm: TMainForm
       Options = [nboShowCloseButtons]
       TabOrder = 1
       OnCloseTabClicked = pgEditorsCloseTabClicked
+      OnMouseDown = pgEditorsMouseDown
     end
   end
   object StatusBar1: TStatusBar
@@ -419,6 +409,10 @@ object MainForm: TMainForm
     object miEditConn: TMenuItem
       Caption = 'Editar Conexão...'
       OnClick = btnEditConnClick
+    end
+    object miDuplicateConn: TMenuItem
+      Caption = 'Duplicar Conexão...'
+      OnClick = miDuplicateConnClick
     end
     object miDeleteConn: TMenuItem
       Caption = 'Excluir Conexão'

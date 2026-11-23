@@ -341,7 +341,7 @@ var
     RawStmt: string;
   begin
     if AEndIdx >= StartPos then
-      RawStmt := Trim(Copy(AScript, StartPos, AEndIdx - StartPos + 1))
+      RawStmt := StripLeadingCommentsAndWS(Copy(AScript, StartPos, AEndIdx - StartPos + 1))
     else
       RawStmt := '';
     StartPos := AEndIdx + 1 + AOldTermLen;
@@ -792,7 +792,10 @@ var
   SrcCol, TgtCol: TTableColumnInfo;
   SrcIdx, TgtIdx: TTableIndexInfo;
   SrcFK, TgtFK: TTableForeignKeyInfo;
+  SrcUQ, TgtUQ: TTableUniqueConstraintInfo;
+  SrcChk, TgtChk: TTableCheckConstraintInfo;
   SrcCode, TgtCode: TSnapshotCodeItem;
+  OrderedCodeList: TList;
   EditStmts: TStringList;
   NormSrc, NormTgt, TempSql, TblIdent: string;
   IsDifferent: Boolean;
@@ -840,6 +843,158 @@ var
         AOutFK := ATbl.ForeignKeys[K];
         Exit(True);
       end;
+  end;
+
+  function IsFirebirdAutoConstraintName(const AName: string): Boolean;
+  begin
+    Result := (ADbType = dtFirebird) and (Pos('INTEG_', UpperCase(Trim(AName))) = 1);
+  end;
+
+  function BuildAddUniqueDDL(const ATableName: string; const AUQ: TTableUniqueConstraintInfo): string;
+  begin
+    if (Trim(AUQ.ConstraintName) <> '') and (not IsFirebirdAutoConstraintName(AUQ.ConstraintName)) then
+      Result := Format('ALTER TABLE %s ADD CONSTRAINT %s UNIQUE (%s)', [
+        QuoteDbIdent(ADbType, ATableName),
+        QuoteDbIdent(ADbType, AUQ.ConstraintName),
+        QuoteIdentList(ADbType, AUQ.Columns)
+      ])
+    else
+      Result := Format('ALTER TABLE %s ADD UNIQUE (%s)', [
+        QuoteDbIdent(ADbType, ATableName),
+        QuoteIdentList(ADbType, AUQ.Columns)
+      ]);
+  end;
+
+  function BuildAddCheckDDL(const ATableName: string; const AChk: TTableCheckConstraintInfo): string;
+  begin
+    if (Trim(AChk.ConstraintName) <> '') and (not IsFirebirdAutoConstraintName(AChk.ConstraintName)) then
+      Result := Format('ALTER TABLE %s ADD CONSTRAINT %s %s', [
+        QuoteDbIdent(ADbType, ATableName),
+        QuoteDbIdent(ADbType, AChk.ConstraintName),
+        Trim(AChk.CheckSource)
+      ])
+    else
+      Result := Format('ALTER TABLE %s ADD %s', [
+        QuoteDbIdent(ADbType, ATableName),
+        Trim(AChk.CheckSource)
+      ]);
+  end;
+
+  function FindUnique(const ATbl: TTableStructure; const ATarget: TTableUniqueConstraintInfo; out AOutUQ: TTableUniqueConstraintInfo): Boolean;
+  var
+    K: Integer;
+  begin
+    Result := False;
+    if ATbl = nil then
+      Exit;
+    for K := 0 to High(ATbl.UniqueConstraints) do
+      if SameText(ATbl.UniqueConstraints[K].ConstraintName, ATarget.ConstraintName) then
+      begin
+        AOutUQ := ATbl.UniqueConstraints[K];
+        Exit(True);
+      end;
+    if IsFirebirdAutoConstraintName(ATarget.ConstraintName) then
+    begin
+      for K := 0 to High(ATbl.UniqueConstraints) do
+        if IsFirebirdAutoConstraintName(ATbl.UniqueConstraints[K].ConstraintName) and
+           SameText(Trim(ATbl.UniqueConstraints[K].Columns), Trim(ATarget.Columns)) then
+        begin
+          AOutUQ := ATbl.UniqueConstraints[K];
+          Exit(True);
+        end;
+    end;
+  end;
+
+  function FindCheck(const ATbl: TTableStructure; const ATarget: TTableCheckConstraintInfo; out AOutChk: TTableCheckConstraintInfo): Boolean;
+  var
+    K: Integer;
+    NormTarget: string;
+  begin
+    Result := False;
+    if ATbl = nil then
+      Exit;
+    for K := 0 to High(ATbl.CheckConstraints) do
+      if SameText(ATbl.CheckConstraints[K].ConstraintName, ATarget.ConstraintName) then
+      begin
+        AOutChk := ATbl.CheckConstraints[K];
+        Exit(True);
+      end;
+    if IsFirebirdAutoConstraintName(ATarget.ConstraintName) then
+    begin
+      NormTarget := NormalizeCodeText(ATarget.CheckSource, True);
+      for K := 0 to High(ATbl.CheckConstraints) do
+        if IsFirebirdAutoConstraintName(ATbl.CheckConstraints[K].ConstraintName) and
+           SameText(NormalizeCodeText(ATbl.CheckConstraints[K].CheckSource, True), NormTarget) then
+        begin
+          AOutChk := ATbl.CheckConstraints[K];
+          Exit(True);
+        end;
+    end;
+  end;
+
+  procedure SortCodeItemsByDependency(const AList: TStringList; const AOutOrder: TList);
+  var
+    N, K: Integer;
+    UpperDDLs, UpperNames: array of string;
+    Visited: array of Byte;
+
+    function ContainsWholeIdent(const AHaystack, ANeedle: string): Boolean;
+    var
+      P, HLen, NLen: Integer;
+      BeforeOk, AfterOk: Boolean;
+    begin
+      Result := False;
+      NLen := Length(ANeedle);
+      HLen := Length(AHaystack);
+      if (NLen = 0) or (HLen < NLen) then
+        Exit;
+      P := Pos(ANeedle, AHaystack);
+      while P > 0 do
+      begin
+        BeforeOk := (P = 1) or not (AHaystack[P - 1] in ['A'..'Z', '0'..'9', '_', '$']);
+        AfterOk := (P + NLen > HLen) or not (AHaystack[P + NLen] in ['A'..'Z', '0'..'9', '_', '$']);
+        if BeforeOk and AfterOk then
+          Exit(True);
+        P := Pos(ANeedle, AHaystack, P + NLen);
+      end;
+    end;
+
+    procedure Visit(const AIdx: Integer);
+    var
+      J: Integer;
+    begin
+      if Visited[AIdx] <> 0 then
+        Exit;
+      Visited[AIdx] := 1;
+      for J := 0 to N - 1 do
+      begin
+        if (J <> AIdx) and (Visited[J] = 0) then
+        begin
+          if ContainsWholeIdent(UpperDDLs[AIdx], UpperNames[J]) then
+            Visit(J);
+        end;
+      end;
+      Visited[AIdx] := 2;
+      AOutOrder.Add(AList.Objects[AIdx]);
+    end;
+
+  begin
+    AOutOrder.Clear;
+    N := AList.Count;
+    if N = 0 then
+      Exit;
+    SetLength(UpperDDLs, N);
+    SetLength(UpperNames, N);
+    SetLength(Visited, N);
+    for K := 0 to N - 1 do
+    begin
+      UpperNames[K] := UpperCase(Trim(TSnapshotCodeItem(AList.Objects[K]).Name));
+      UpperDDLs[K] := UpperCase(TSnapshotCodeItem(AList.Objects[K]).DDL);
+      Visited[K] := 0;
+    end;
+    for K := 0 to N - 1 do
+      if Visited[K] = 0 then
+        Visit(K);
   end;
 
   procedure InitDiffItem(
@@ -1007,6 +1162,43 @@ begin
               );
               Result.AddItem(Item);
             end;
+          end
+          else if (SrcCol.IsComputed <> TgtCol.IsComputed) or
+                  (not SameText(NormalizeCodeText(SrcCol.ComputedSource, True), NormalizeCodeText(TgtCol.ComputedSource, True))) then
+          begin
+            TempSql := BuildDropColumnDDL(ADbType, SrcTbl.TableName, TgtCol.ColumnName) + ';' + LineEnding;
+            if SrcCol.IsComputed then
+              TempSql := TempSql + Format('ALTER TABLE %s ADD %s COMPUTED BY (%s)', [
+                QuoteDbIdent(ADbType, SrcTbl.TableName),
+                QuoteDbIdent(ADbType, SrcCol.ColumnName),
+                Trim(SrcCol.ComputedSource)
+              ])
+            else
+              TempSql := TempSql + BuildAddColumnDDL(
+                ADbType,
+                SrcTbl.TableName,
+                SrcCol.ColumnName,
+                SrcCol.DataType,
+                SrcCol.DefaultValue,
+                SrcCol.NotNull
+              );
+            if SrcCol.IsComputed then
+              NormSrc := 'COMPUTED BY (' + SrcCol.ComputedSource + ')'
+            else
+              NormSrc := SrcCol.DataType;
+            if TgtCol.IsComputed then
+              NormTgt := 'COMPUTED BY (' + TgtCol.ComputedSource + ')'
+            else
+              NormTgt := TgtCol.DataType;
+            InitDiffItem(
+              Item, cocColumn, SrcTbl.TableName + '.' + SrcCol.ColumnName, SrcTbl.TableName,
+              cdsDifferent,
+              'Coluna computada/expressão divergente no destino',
+              NormSrc,
+              NormTgt,
+              TempSql
+            );
+            Result.AddItem(Item);
           end;
         end;
 
@@ -1028,6 +1220,31 @@ begin
               );
               Result.AddItem(Item);
             end;
+          end;
+
+          { Comentário da coluna (COMMENT ON COLUMN) }
+          if Trim(SrcCol.Description) <> Trim(TgtCol.Description) then
+          begin
+            if Trim(SrcCol.Description) = '' then
+              TempSql := Format('COMMENT ON COLUMN %s.%s IS NULL', [
+                QuoteDbIdent(ADbType, SrcTbl.TableName),
+                QuoteDbIdent(ADbType, SrcCol.ColumnName)
+              ])
+            else
+              TempSql := Format('COMMENT ON COLUMN %s.%s IS %s', [
+                QuoteDbIdent(ADbType, SrcTbl.TableName),
+                QuoteDbIdent(ADbType, SrcCol.ColumnName),
+                EscapeSqlLit(Trim(SrcCol.Description))
+              ]);
+            InitDiffItem(
+              Item, cocColumn, SrcTbl.TableName + '.' + SrcCol.ColumnName + ' [Comentário]', SrcTbl.TableName,
+              cdsDifferent,
+              'Comentário da coluna diferente no destino',
+              Trim(SrcCol.Description),
+              Trim(TgtCol.Description),
+              TempSql
+            );
+            Result.AddItem(Item);
           end;
         end;
 
@@ -1240,15 +1457,143 @@ begin
           end;
         end;
       end;
+
+      { Unique Constraints em tabelas existentes }
+      if TgtTbl <> nil then
+      begin
+        for J := 0 to High(SrcTbl.UniqueConstraints) do
+        begin
+          SrcUQ := SrcTbl.UniqueConstraints[J];
+          if not FindUnique(TgtTbl, SrcUQ, TgtUQ) then
+          begin
+            TempSql := BuildAddUniqueDDL(SrcTbl.TableName, SrcUQ);
+            InitDiffItem(
+              Item, cocIndex, SrcTbl.TableName + '.' + SrcUQ.ConstraintName, SrcTbl.TableName,
+              cdsMissingInTarget,
+              Format('UNIQUE ausente em %s (%s)', [SrcTbl.TableName, SrcUQ.Columns]),
+              TempSql,
+              '',
+              TempSql
+            );
+            Result.AddItem(Item);
+          end
+          else if not SameText(Trim(SrcUQ.Columns), Trim(TgtUQ.Columns)) then
+          begin
+            TempSql := Format('ALTER TABLE %s DROP CONSTRAINT %s;%s%s', [
+              QuoteDbIdent(ADbType, SrcTbl.TableName),
+              QuoteDbIdent(ADbType, TgtUQ.ConstraintName),
+              LineEnding,
+              BuildAddUniqueDDL(SrcTbl.TableName, SrcUQ)
+            ]);
+            InitDiffItem(
+              Item, cocIndex, SrcTbl.TableName + '.' + SrcUQ.ConstraintName, SrcTbl.TableName,
+              cdsDifferent,
+              Format('UNIQUE divergente em %s', [SrcTbl.TableName]),
+              'UNIQUE (' + SrcUQ.Columns + ')',
+              'UNIQUE (' + TgtUQ.Columns + ')',
+              TempSql
+            );
+            Result.AddItem(Item);
+          end;
+        end;
+
+        if AOptions.IncludeDropsForExtraObjects then
+        begin
+          for J := 0 to High(TgtTbl.UniqueConstraints) do
+          begin
+            TgtUQ := TgtTbl.UniqueConstraints[J];
+            if not FindUnique(SrcTbl, TgtUQ, SrcUQ) then
+            begin
+              TempSql := Format('ALTER TABLE %s DROP CONSTRAINT %s', [
+                QuoteDbIdent(ADbType, SrcTbl.TableName),
+                QuoteDbIdent(ADbType, TgtUQ.ConstraintName)
+              ]);
+              InitDiffItem(
+                Item, cocIndex, SrcTbl.TableName + '.' + TgtUQ.ConstraintName, SrcTbl.TableName,
+                cdsExtraInTarget,
+                'UNIQUE existe apenas no destino',
+                '',
+                'UNIQUE (' + TgtUQ.Columns + ')',
+                TempSql
+              );
+              Result.AddItem(Item);
+            end;
+          end;
+        end;
+
+        { Check Constraints em tabelas existentes }
+        for J := 0 to High(SrcTbl.CheckConstraints) do
+        begin
+          SrcChk := SrcTbl.CheckConstraints[J];
+          if not FindCheck(TgtTbl, SrcChk, TgtChk) then
+          begin
+            TempSql := BuildAddCheckDDL(SrcTbl.TableName, SrcChk);
+            InitDiffItem(
+              Item, cocIndex, SrcTbl.TableName + '.' + SrcChk.ConstraintName, SrcTbl.TableName,
+              cdsMissingInTarget,
+              Format('CHECK ausente em %s', [SrcTbl.TableName]),
+              TempSql,
+              '',
+              TempSql
+            );
+            Result.AddItem(Item);
+          end
+          else if not SameText(NormalizeCodeText(SrcChk.CheckSource, True), NormalizeCodeText(TgtChk.CheckSource, True)) then
+          begin
+            TempSql := Format('ALTER TABLE %s DROP CONSTRAINT %s;%s%s', [
+              QuoteDbIdent(ADbType, SrcTbl.TableName),
+              QuoteDbIdent(ADbType, TgtChk.ConstraintName),
+              LineEnding,
+              BuildAddCheckDDL(SrcTbl.TableName, SrcChk)
+            ]);
+            InitDiffItem(
+              Item, cocIndex, SrcTbl.TableName + '.' + SrcChk.ConstraintName, SrcTbl.TableName,
+              cdsDifferent,
+              Format('CHECK divergente em %s', [SrcTbl.TableName]),
+              SrcChk.CheckSource,
+              TgtChk.CheckSource,
+              TempSql
+            );
+            Result.AddItem(Item);
+          end;
+        end;
+
+        if AOptions.IncludeDropsForExtraObjects then
+        begin
+          for J := 0 to High(TgtTbl.CheckConstraints) do
+          begin
+            TgtChk := TgtTbl.CheckConstraints[J];
+            if not FindCheck(SrcTbl, TgtChk, SrcChk) then
+            begin
+              TempSql := Format('ALTER TABLE %s DROP CONSTRAINT %s', [
+                QuoteDbIdent(ADbType, SrcTbl.TableName),
+                QuoteDbIdent(ADbType, TgtChk.ConstraintName)
+              ]);
+              InitDiffItem(
+                Item, cocIndex, SrcTbl.TableName + '.' + TgtChk.ConstraintName, SrcTbl.TableName,
+                cdsExtraInTarget,
+                'CHECK existe apenas no destino',
+                '',
+                TgtChk.CheckSource,
+                TempSql
+              );
+              Result.AddItem(Item);
+            end;
+          end;
+        end;
+      end;
     end;
   end;
 
-  { 6. Views }
+  { 6. Views (ordenadas por dependência) }
   if AOptions.CompareViews then
   begin
-    for I := 0 to ASource.Views.Count - 1 do
-    begin
-      SrcCode := TSnapshotCodeItem(ASource.Views.Objects[I]);
+    OrderedCodeList := TList.Create;
+    try
+      SortCodeItemsByDependency(ASource.Views, OrderedCodeList);
+      for I := 0 to OrderedCodeList.Count - 1 do
+      begin
+        SrcCode := TSnapshotCodeItem(OrderedCodeList[I]);
       TgtCode := ATarget.FindView(SrcCode.Name);
       if TgtCode = nil then
       begin
@@ -1274,6 +1619,9 @@ begin
         end;
       end;
     end;
+    finally
+      OrderedCodeList.Free;
+    end;
 
     if AOptions.IncludeDropsForExtraObjects then
     begin
@@ -1294,12 +1642,15 @@ begin
     end;
   end;
 
-  { 7. Procedures / Functions }
+  { 7. Procedures / Functions (ordenadas por dependência) }
   if AOptions.CompareProcedures then
   begin
-    for I := 0 to ASource.Procedures.Count - 1 do
-    begin
-      SrcCode := TSnapshotCodeItem(ASource.Procedures.Objects[I]);
+    OrderedCodeList := TList.Create;
+    try
+      SortCodeItemsByDependency(ASource.Procedures, OrderedCodeList);
+      for I := 0 to OrderedCodeList.Count - 1 do
+      begin
+        SrcCode := TSnapshotCodeItem(OrderedCodeList[I]);
       TgtCode := ATarget.FindProcedure(SrcCode.Name);
       if TgtCode = nil then
       begin
@@ -1324,6 +1675,9 @@ begin
           Result.AddItem(Item);
         end;
       end;
+    end;
+    finally
+      OrderedCodeList.Free;
     end;
 
     if AOptions.IncludeDropsForExtraObjects then
@@ -1517,7 +1871,8 @@ begin
     '  COALESCE(rf.RDB$NULL_FLAG, f.RDB$NULL_FLAG, 0), ' +
     '  rf.RDB$DEFAULT_SOURCE, ' +
     '  f.RDB$DEFAULT_SOURCE, ' +
-    '  f.RDB$COMPUTED_SOURCE ' +
+    '  f.RDB$COMPUTED_SOURCE, ' +
+    '  rf.RDB$DESCRIPTION ' +
     'FROM RDB$RELATION_FIELDS rf ' +
     'JOIN RDB$RELATIONS r ON r.RDB$RELATION_NAME = rf.RDB$RELATION_NAME ' +
     'JOIN RDB$FIELDS f ON f.RDB$FIELD_NAME = rf.RDB$FIELD_SOURCE ' +
@@ -1557,6 +1912,8 @@ begin
       if not Row[13].IsNull then
         Col.ComputedSource := Trim(Row[13].AsText);
       Col.IsComputed := Col.ComputedSource <> '';
+      if not Row[14].IsNull then
+        Col.Description := Trim(Row[14].AsText);
 
       SetLength(Tbl.Columns, Length(Tbl.Columns) + 1);
       Tbl.Columns[High(Tbl.Columns)] := Col;
@@ -1621,6 +1978,45 @@ begin
         end
         else if SegCol <> '' then
           Tbl.UniqueConstraints[IdxPos].Columns := Tbl.UniqueConstraints[IdxPos].Columns + ', ' + SegCol;
+      end;
+    end;
+  finally
+    Res.Free;
+  end;
+
+  { 4b. Check Constraints em lote (Firebird) }
+  Res := ExecChecked(
+    'SELECT DISTINCT ' +
+    '  TRIM(rc.RDB$RELATION_NAME), ' +
+    '  TRIM(rc.RDB$CONSTRAINT_NAME), ' +
+    '  t.RDB$TRIGGER_SOURCE ' +
+    'FROM RDB$RELATION_CONSTRAINTS rc ' +
+    'JOIN RDB$CHECK_CONSTRAINTS cc ON cc.RDB$CONSTRAINT_NAME = rc.RDB$CONSTRAINT_NAME ' +
+    'JOIN RDB$TRIGGERS t ON t.RDB$TRIGGER_NAME = cc.RDB$TRIGGER_NAME ' +
+    'WHERE rc.RDB$CONSTRAINT_TYPE = ''CHECK'' ' +
+    'ORDER BY rc.RDB$RELATION_NAME, rc.RDB$CONSTRAINT_NAME'
+  );
+  try
+    for I := 0 to Res.RowCount - 1 do
+    begin
+      Row := Res.GetRow(I);
+      Tbl := ASnap.FindTable(Row[0].AsText);
+      if Tbl = nil then
+        Continue;
+      ConName := Trim(Row[1].AsText);
+      IdxPos := -1;
+      for J := 0 to High(Tbl.CheckConstraints) do
+        if SameText(Tbl.CheckConstraints[J].ConstraintName, ConName) then
+        begin
+          IdxPos := J;
+          Break;
+        end;
+      if IdxPos < 0 then
+      begin
+        IdxPos := Length(Tbl.CheckConstraints);
+        SetLength(Tbl.CheckConstraints, IdxPos + 1);
+        Tbl.CheckConstraints[IdxPos].ConstraintName := ConName;
+        Tbl.CheckConstraints[IdxPos].CheckSource := Trim(Row[2].AsText);
       end;
     end;
   finally
@@ -1860,7 +2256,9 @@ begin
       '  COALESCE(f.RDB$FIELD_LENGTH, 0), ' +
       '  COALESCE(f.RDB$FIELD_PRECISION, 0), ' +
       '  COALESCE(f.RDB$FIELD_SCALE, 0), ' +
-      '  COALESCE(f.RDB$CHARACTER_LENGTH, 0) ' +
+      '  COALESCE(f.RDB$CHARACTER_LENGTH, 0), ' +
+      '  pp.RDB$DEFAULT_SOURCE, ' +
+      '  f.RDB$DEFAULT_SOURCE ' +
       'FROM RDB$PROCEDURE_PARAMETERS pp ' +
       'JOIN RDB$PROCEDURES p ON p.RDB$PROCEDURE_NAME = pp.RDB$PROCEDURE_NAME ' +
       'LEFT JOIN RDB$FIELDS f ON f.RDB$FIELD_NAME = pp.RDB$FIELD_SOURCE ' +
@@ -1885,6 +2283,14 @@ begin
           );
         if PType = 0 then
         begin
+          ColDef := '';
+          if not Row[10].IsNull then
+            ColDef := StripLeadingDefaultKeyword(Row[10].AsText);
+          if (ColDef = '') and (not Row[11].IsNull) then
+            ColDef := StripLeadingDefaultKeyword(Row[11].AsText);
+          if ColDef <> '' then
+            ParamStr := ParamStr + ' DEFAULT ' + ColDef;
+
           if not ProcInMap.Find(TblName, IdxPos) then
           begin
             CurList := TStringList.Create;
@@ -2042,7 +2448,7 @@ begin
   { 1. Sequences }
   Res := ExecChecked(
     'SELECT sequence_name FROM information_schema.sequences ' +
-    'WHERE sequence_schema = ''public'' ORDER BY 1'
+    'WHERE sequence_schema = current_schema() ORDER BY 1'
   );
   try
     for I := 0 to Res.RowCount - 1 do
@@ -2054,7 +2460,7 @@ begin
   { 2. Tabelas }
   Res := ExecChecked(
     'SELECT table_name FROM information_schema.tables ' +
-    'WHERE table_schema = ''public'' AND table_type = ''BASE TABLE'' ORDER BY 1'
+    'WHERE table_schema = current_schema() AND table_type = ''BASE TABLE'' ORDER BY 1'
   );
   try
     for I := 0 to Res.RowCount - 1 do
@@ -2072,13 +2478,14 @@ begin
     '  format_type(a.atttypid, a.atttypmod), ' +
     '  CASE WHEN t.typtype = ''d'' THEN t.typname ELSE '''' END, ' +
     '  COALESCE(pg_get_expr(ad.adbin, ad.adrelid), ''''), ' +
-    '  a.attnotnull ' +
+    '  a.attnotnull, ' +
+    '  COALESCE(col_description(c.oid, a.attnum), '''') ' +
     'FROM pg_attribute a ' +
     'JOIN pg_class c ON c.oid = a.attrelid AND c.relkind IN (''r'', ''p'') ' +
     'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
     'JOIN pg_type t ON t.oid = a.atttypid ' +
     'LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum ' +
-    'WHERE n.nspname = ''public'' AND a.attnum > 0 AND NOT a.attisdropped ' +
+    'WHERE n.nspname = current_schema() AND a.attnum > 0 AND NOT a.attisdropped ' +
     'ORDER BY c.relname, a.attnum'
   );
   try
@@ -2095,6 +2502,7 @@ begin
       Col.DomainName := Trim(Row[4].AsText);
       Col.DefaultValue := Trim(Row[5].AsText);
       Col.NotNull := SameText(Trim(Row[6].AsText), 't') or SameText(Trim(Row[6].AsText), 'true') or (Trim(Row[6].AsText) = '1');
+      Col.Description := Trim(Row[7].AsText);
       SetLength(Tbl.Columns, Length(Tbl.Columns) + 1);
       Tbl.Columns[High(Tbl.Columns)] := Col;
     end;
@@ -2122,7 +2530,7 @@ begin
     'JOIN pg_class c ON c.oid = con.conrelid ' +
     'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
     'LEFT JOIN pg_class ref_tbl ON ref_tbl.oid = con.confrelid ' +
-    'WHERE n.nspname = ''public'' ' +
+    'WHERE n.nspname = current_schema() ' +
     'ORDER BY c.relname, con.contype, con.conname'
   );
   try
@@ -2182,7 +2590,7 @@ begin
     'JOIN pg_class idx_cls ON idx_cls.oid = idx.indexrelid ' +
     'LEFT JOIN LATERAL unnest(idx.indkey) WITH ORDINALITY AS ord(attnum, pos) ON true ' +
     'LEFT JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = ord.attnum AND ord.attnum > 0 ' +
-    'WHERE n.nspname = ''public'' ' +
+    'WHERE n.nspname = current_schema() ' +
     'GROUP BY tbl.relname, idx_cls.relname, idx.indexrelid, idx.indisunique, idx.indisprimary, idx.indisvalid ' +
     'ORDER BY tbl.relname, idx_cls.relname'
   );
@@ -2216,7 +2624,7 @@ begin
     'SELECT c.relname, c.relkind::text, pg_get_viewdef(c.oid, true) ' +
     'FROM pg_class c ' +
     'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
-    'WHERE n.nspname = ''public'' AND c.relkind IN (''v'', ''m'') ORDER BY c.relname'
+    'WHERE n.nspname = current_schema() AND c.relkind IN (''v'', ''m'') ORDER BY c.relname'
   );
   try
     for I := 0 to Res.RowCount - 1 do
@@ -2238,7 +2646,7 @@ begin
     'SELECT p.proname, pg_get_functiondef(p.oid) ' +
     'FROM pg_proc p ' +
     'JOIN pg_namespace n ON n.oid = p.pronamespace ' +
-    'WHERE n.nspname = ''public'' ' +
+    'WHERE n.nspname = current_schema() ' +
     '  AND NOT EXISTS (SELECT 1 FROM pg_aggregate a WHERE a.aggfnoid = p.oid) ' +
     'ORDER BY p.proname, p.oid'
   );
@@ -2258,7 +2666,7 @@ begin
     'FROM pg_trigger t ' +
     'JOIN pg_class c ON c.oid = t.tgrelid ' +
     'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
-    'WHERE n.nspname = ''public'' AND NOT t.tgisinternal ' +
+    'WHERE n.nspname = current_schema() AND NOT t.tgisinternal ' +
     'ORDER BY t.tgname'
   );
   try

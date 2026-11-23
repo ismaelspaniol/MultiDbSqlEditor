@@ -6,10 +6,15 @@ interface
 
 uses
   Classes, SysUtils, Types, Math, Generics.Collections, Forms, Controls, Graphics, Dialogs,
-  ComCtrls, ExtCtrls, StdCtrls, Menus, LCLType,
+  ComCtrls, ExtCtrls, StdCtrls, Menus, LCLType, LMessages, SynEdit,
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
+  Domain.QueryResult,
   Domain.Interfaces,
+  Domain.QueryHistory,
+  Infrastructure.JsonQueryHistoryRepository,
+  Presentation.QueryHistoryForm,
+  Presentation.ReplicationForm,
   Application.TestConnectionUseCase,
   Application.ManageConnectionsUseCase,
   Application.ExecuteQueryUseCase,
@@ -22,6 +27,7 @@ uses
   Infrastructure.JsonWorkspaceRepository,
   Infrastructure.FirebirdSqlDbProvider,
   Infrastructure.MormotPostgresProvider,
+  Infrastructure.MariaDbSqlDbProvider,
   Presentation.ConnectionForm,
   Presentation.SqlEditorFrame,
   Presentation.ObjectEditorFrame,
@@ -31,7 +37,8 @@ uses
   Domain.MaintenanceTypes,
   Presentation.DatabaseComparerFrame,
   Presentation.DatabaseMaintenanceForm,
-  Presentation.ScriptExecutorFrame;
+  Presentation.ScriptExecutorFrame,
+  Presentation.SqlBeautifierHelper;
 
 type
   TExplorerNodeKind = (enkGroup, enkConnection, enkCategory, enkObject);
@@ -69,7 +76,6 @@ type
     pnlEditorBar: TPanel;
     btnToggleSidebar: TButton;
     btnNewTab: TButton;
-    btnCloseTab: TButton;
     btnMonitorDb: TButton;
     btnCompareDb: TButton;
     btnScriptExec: TButton;
@@ -97,6 +103,7 @@ type
     miSep1: TMenuItem;
     miDisconnectConn: TMenuItem;
     miEditConn: TMenuItem;
+    miDuplicateConn: TMenuItem;
     miDeleteConn: TMenuItem;
     miSep2: TMenuItem;
     miMoveConnUp: TMenuItem;
@@ -136,6 +143,8 @@ type
     procedure btnNewTabClick(Sender: TObject);
     procedure btnCloseTabClick(Sender: TObject);
     procedure pgEditorsCloseTabClicked(Sender: TObject);
+    procedure pgEditorsMouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Integer);
     procedure btnMonitorDbClick(Sender: TObject);
     procedure btnCompareDbClick(Sender: TObject);
     procedure btnScriptExecClick(Sender: TObject);
@@ -165,12 +174,20 @@ type
     procedure miRefreshCategoryClick(Sender: TObject);
     procedure miDropObjectClick(Sender: TObject);
     procedure miDisconnectConnClick(Sender: TObject);
+    procedure miDuplicateConnClick(Sender: TObject);
     procedure miSortAscClick(Sender: TObject);
     procedure miSortDescClick(Sender: TObject);
     procedure miExitClick(Sender: TObject);
     procedure miToolBackupClick(Sender: TObject);
     procedure miToolRestoreClick(Sender: TObject);
     procedure miToolRepairClick(Sender: TObject);
+    procedure miToolQueryHistoryClick(Sender: TObject);
+    procedure miToolReplicationClick(Sender: TObject);
+    procedure miToolAboutClick(Sender: TObject);
+    procedure miSelectSchemaClick(Sender: TObject);
+    procedure FormShortCut(var Msg: TLMKey; var Handled: Boolean);
+    procedure tvConnectionsCustomDrawItem(Sender: TCustomTreeView; Node: TTreeNode;
+      State: TCustomDrawState; var DefaultDraw: Boolean);
   private
     FFactory: IDatabaseProviderFactory;
     FRepository: IConnectionRepository;
@@ -183,10 +200,18 @@ type
     FMonitorUseCase: TDatabaseMonitoringUseCase;
     FManageTableStructure: TManageTableStructureUseCase;
     FConnections: TConnectionProfileList;
+    FQueryHistory: IQueryHistoryService;
     FNodeDataList: TExplorerNodeDataList;
     FTabCounter: Integer;
     FNextSortAsc: Boolean;
     FLastLeftPanelWidth: Integer;
+    miSelectSchema: TMenuItem;
+    miToolQueryHistory: TMenuItem;
+    miToolReplication: TMenuItem;
+    miToolAbout: TMenuItem;
+    pnlBrandHeader: TPanel;
+    procedure ApplyVisualTheme;
+    procedure HandleOpenSqlFromHistory(const AProfileId, ASqlText: string);
     procedure InitializeDependencies;
     procedure RefreshConnectionsTree(const ASelectProfileId: string = '');
     procedure ApplyTreeFilter;
@@ -261,11 +286,19 @@ var
 
 implementation
 
+uses
+  Presentation.TabHelpers;
+
 {$R *.lfm}
 
 procedure TMainForm.FormCreate(Sender: TObject);
 begin
-  Caption := 'Multi-DB SQL Editor (Firebird & PostgreSQL)';
+  Caption := 'Multi-DB SQL Editor (Firebird, PostgreSQL & MariaDB)';
+  try
+    Forms.Application.Icon.LoadFromResourceName(HInstance, 'MAINICON');
+    Icon.Assign(Forms.Application.Icon);
+  except
+  end;
   FTabCounter := 0;
   FNextSortAsc := True;
   FLastLeftPanelWidth := pnlLeft.Width;
@@ -275,7 +308,43 @@ begin
   RestoreWorkspace;
   UpdateConnectionButtonsState;
   miMenuScriptExec.ShortCut := Menus.ShortCut(VK_F12, [ssCtrl]);
-  StatusBar1.SimpleText := 'Pronto (F9 executa | Ctrl+F12 Script Executive | Ctrl+Espaço autocompleta)';
+  miSelectSchema := TMenuItem.Create(pmConnections);
+  miSelectSchema.Caption := 'Selecionar Schema...';
+  miSelectSchema.OnClick := @miSelectSchemaClick;
+  pmConnections.Items.Insert(pmConnections.Items.IndexOf(miEditConn), miSelectSchema);
+
+  if miMenuScriptExec.Parent <> nil then
+  begin
+    miToolQueryHistory := TMenuItem.Create(Self);
+    miToolQueryHistory.Caption := 'Histórico de Execução...';
+    miToolQueryHistory.OnClick := @miToolQueryHistoryClick;
+    miMenuScriptExec.Parent.Add(miToolQueryHistory);
+
+    miToolReplication := TMenuItem.Create(Self);
+    miToolReplication.Caption := 'Configurar Replicação (PostgreSQL / Firebird 5)...';
+    miToolReplication.OnClick := @miToolReplicationClick;
+    miMenuScriptExec.Parent.Add(miToolReplication);
+
+    miToolAbout := TMenuItem.Create(Self);
+    miToolAbout.Caption := 'Sobre o Multi-DB SQL Editor...';
+    miToolAbout.OnClick := @miToolAboutClick;
+    miMenuScriptExec.Parent.Add(miToolAbout);
+  end;
+  OnShortCut := @FormShortCut;
+  ApplyVisualTheme;
+  StatusBar1.SimpleText := 'Pronto (F9 executa | Alt+F formata SQL | Ctrl+F12 Script Executive | Ctrl+Espaço autocompleta)';
+end;
+
+procedure TMainForm.FormShortCut(var Msg: TLMKey; var Handled: Boolean);
+begin
+  if (Msg.CharCode = Ord('F')) and (KeyDataToShiftState(Msg.KeyData) = [ssAlt]) then
+  begin
+    if (ActiveControl is TSynEdit) and (not TSynEdit(ActiveControl).ReadOnly) then
+    begin
+      FormatSynEditSql(TSynEdit(ActiveControl));
+      Handled := True;
+    end;
+  end;
 end;
 
 procedure TMainForm.FormCloseQuery(Sender: TObject; var CanClose: Boolean);
@@ -370,7 +439,9 @@ begin
   ConcreteFactory := TDatabaseProviderFactory.Create;
   ConcreteFactory.RegisterProvider(TFirebirdSqlDbProvider.Create);
   ConcreteFactory.RegisterProvider(TMormotPostgresProvider.Create);
+  ConcreteFactory.RegisterProvider(TMariaDbSqlDbProvider.Create);
   FFactory := ConcreteFactory;
+  FQueryHistory := TJsonQueryHistoryService.Create;
 
   FRepository := TJsonConnectionRepository.Create;
   FWorkspaceRepo := TJsonWorkspaceRepository.Create;
@@ -402,7 +473,7 @@ end;
 
 procedure TMainForm.RefreshConnectionsTree(const ASelectProfileId: string);
 var
-  RootFirebird, RootPostgres, ConnNode, SelectNode: TTreeNode;
+  RootFirebird, RootPostgres, RootMariaDB, ConnNode, SelectNode: TTreeNode;
   Profile: TConnectionProfile;
 begin
   SelectNode := nil;
@@ -415,6 +486,7 @@ begin
 
     RootFirebird := tvConnections.Items.AddObject(nil, 'Firebird', CreateNodeData(enkGroup));
     RootPostgres := tvConnections.Items.AddObject(nil, 'PostgreSQL', CreateNodeData(enkGroup));
+    RootMariaDB := tvConnections.Items.AddObject(nil, 'MariaDB', CreateNodeData(enkGroup));
 
     for Profile in FConnections do
     begin
@@ -422,9 +494,15 @@ begin
         ConnNode := tvConnections.Items.AddChildObject(
           RootFirebird, Profile.Name, CreateNodeData(enkConnection, Profile)
         )
+      else if Profile.DatabaseType = dtMariaDB then
+        ConnNode := tvConnections.Items.AddChildObject(
+          RootMariaDB, Profile.Name, CreateNodeData(enkConnection, Profile)
+        )
       else
         ConnNode := tvConnections.Items.AddChildObject(
-          RootPostgres, Profile.Name, CreateNodeData(enkConnection, Profile)
+          RootPostgres,
+          Format('%s [%s]', [Profile.Name, Profile.EffectiveSchema]),
+          CreateNodeData(enkConnection, Profile)
         );
       ConnNode.HasChildren := True;
       if (ASelectProfileId <> '') and SameText(Profile.Id, ASelectProfileId) then
@@ -433,6 +511,7 @@ begin
 
     RootFirebird.Expand(False);
     RootPostgres.Expand(False);
+    RootMariaDB.Expand(False);
   finally
     tvConnections.Items.EndUpdate;
   end;
@@ -614,6 +693,23 @@ begin
   end;
 end;
 
+function FormatExplorerObjectCaption(const AName: string; const ASizeTag: TObject): string;
+var
+  SizeBytes: Int64;
+begin
+  if PtrInt(ASizeTag) <= 0 then
+    Exit(AName);
+  SizeBytes := Int64(PtrInt(ASizeTag)) - 1;
+  if SizeBytes < 1024 then
+    Result := Format('%s (%d B)', [AName, SizeBytes])
+  else if SizeBytes < 1024 * 1024 then
+    Result := Format('%s (%.1f KB)', [AName, SizeBytes / 1024.0])
+  else if SizeBytes < Int64(1024) * 1024 * 1024 then
+    Result := Format('%s (%.1f MB)', [AName, SizeBytes / (1024.0 * 1024.0)])
+  else
+    Result := Format('%s (%.2f GB)', [AName, SizeBytes / (1024.0 * 1024.0 * 1024.0)]);
+end;
+
 procedure TMainForm.ReloadCategoryNode(const ACategoryNode: TTreeNode);
 var
   Data: TExplorerNodeData;
@@ -638,7 +734,7 @@ begin
         begin
           tvConnections.Items.AddChildObject(
             ACategoryNode,
-            Objects[I],
+            FormatExplorerObjectCaption(Objects[I], Objects.Objects[I]),
             CreateNodeData(enkObject, Data.Profile, Data.Category, Objects[I])
           );
         end;
@@ -745,15 +841,17 @@ begin
   Tab := TTabSheet.Create(pgEditors);
   Tab.PageControl := pgEditors;
   if Trim(ACaption) <> '' then
-    Tab.Caption := ACaption
+    SetTabSheetTitle(Tab, ACaption)
   else
-    Tab.Caption := Format('SQL %d', [FTabCounter]);
+    SetTabSheetTitle(Tab, Format('SQL %d', [FTabCounter]));
 
   Result := TSqlEditorFrame.Create(Tab);
   Result.Name := Format('SqlEditorFrame_%d', [FTabCounter]);
   Result.Parent := Tab;
   Result.Align := alClient;
   Result.OnExecutionStateChanged := @HandleEditorExecutionStateChanged;
+  Result.OnOpenObject := @HandleOpenTableDependency;
+  Result.QueryHistory := FQueryHistory;
   Result.Initialize(FFactory, FExecuteQuery, FConnections, AInitialProfileId);
 
   pgEditors.ActivePage := Tab;
@@ -1070,7 +1168,7 @@ begin
   Inc(FTabCounter);
   Tab := TTabSheet.Create(pgEditors);
   Tab.PageControl := pgEditors;
-  Tab.Caption := 'Tabela: ' + CleanTableName;
+  SetTabSheetTitle(Tab, 'Tabela: ' + CleanTableName);
 
   TableFrame := TTableEditorFrame.Create(Tab);
   TableFrame.Name := Format('TableEditorFrame_%d', [FTabCounter]);
@@ -1177,9 +1275,9 @@ begin
     Prefix := 'DDL';
   end;
   if AIsNew then
-    Tab.Caption := 'Novo(a) ' + Prefix
+    SetTabSheetTitle(Tab, 'Novo(a) ' + Prefix)
   else
-    Tab.Caption := Prefix + ': ' + AObjectName;
+    SetTabSheetTitle(Tab, Prefix + ': ' + AObjectName);
 
   ObjFrame := TObjectEditorFrame.Create(Tab);
   ObjFrame.Name := Format('ObjectEditorFrame_%d', [FTabCounter]);
@@ -1210,7 +1308,7 @@ begin
   Inc(FTabCounter);
   Tab := TTabSheet.Create(pgEditors);
   Tab.PageControl := pgEditors;
-  Tab.Caption := 'Monitor BD';
+  SetTabSheetTitle(Tab, 'Monitor BD');
 
   MonFrame := TDatabaseMonitorFrame.Create(Tab);
   MonFrame.Name := Format('DatabaseMonitorFrame_%d', [FTabCounter]);
@@ -1239,7 +1337,7 @@ begin
   Inc(FTabCounter);
   Tab := TTabSheet.Create(pgEditors);
   Tab.PageControl := pgEditors;
-  Tab.Caption := 'Comparar Bases';
+  SetTabSheetTitle(Tab, 'Comparar Bases');
 
   CompFrame := TDatabaseComparerFrame.Create(Tab);
   CompFrame.Name := Format('DatabaseComparerFrame_%d', [FTabCounter]);
@@ -1272,12 +1370,13 @@ begin
   Inc(FTabCounter);
   Tab := TTabSheet.Create(pgEditors);
   Tab.PageControl := pgEditors;
-  Tab.Caption := Format('Script %d', [FTabCounter]);
+  SetTabSheetTitle(Tab, Format('Script %d', [FTabCounter]));
 
   ScriptFrame := TScriptExecutorFrame.Create(Tab);
   ScriptFrame.Name := Format('ScriptExecutorFrame_%d', [FTabCounter]);
   ScriptFrame.Parent := Tab;
   ScriptFrame.Align := alClient;
+  ScriptFrame.OnOpenObject := @HandleOpenTableDependency;
   ScriptFrame.Initialize(FFactory, FConnections, TargetId);
   if Trim(AInitialScript) <> '' then
     ScriptFrame.SetScriptText(AInitialScript);
@@ -1404,7 +1503,7 @@ begin
           Frame := TSqlEditorFrame(Tab.Controls[J]);
           TabTitle := Trim(Frame.BaseTabCaption);
           if TabTitle = '' then
-            TabTitle := Tab.Caption;
+            TabTitle := StripEditorTabCloseSuffix(Tab.Caption);
           Item.Title := TabTitle;
           Item.ProfileId := Frame.ActiveProfileId;
           Item.SqlText := Frame.SqlText;
@@ -1742,7 +1841,7 @@ begin
           begin
             tvConnections.Items.AddChildObject(
               Node,
-              Objects[I],
+              FormatExplorerObjectCaption(Objects[I], Objects.Objects[I]),
               CreateNodeData(enkObject, Data.Profile, Data.Category, Objects[I])
             );
           end;
@@ -1955,6 +2054,7 @@ begin
     Exit;
 
   ATab.Free;
+  TrimProcessMemoryUsage;
 end;
 
 procedure TMainForm.HandleDeferredCloseTab(Data: PtrInt);
@@ -1987,6 +2087,31 @@ begin
   if (Sender is TTabSheet) and (FindEditorTabIndex(TTabSheet(Sender)) >= 0) then
     // Defer freeing the tab past GTK2's button clicked signal emission.
     Forms.Application.QueueAsyncCall(@HandleDeferredCloseTab, PtrInt(Sender));
+end;
+
+procedure TMainForm.pgEditorsMouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+{$IFDEF WINDOWS}
+var
+  TabIdx: Integer;
+  R: TRect;
+{$ENDIF}
+begin
+  {$IFDEF WINDOWS}
+  if not (Button in [mbLeft, mbMiddle]) then
+    Exit;
+  TabIdx := pgEditors.IndexOfTabAt(X, Y);
+  if (TabIdx < 0) or (TabIdx >= pgEditors.PageCount) then
+    Exit;
+  if Button = mbMiddle then
+  begin
+    Forms.Application.QueueAsyncCall(@HandleDeferredCloseTab, PtrInt(pgEditors.Pages[TabIdx]));
+    Exit;
+  end;
+  R := pgEditors.TabRect(TabIdx);
+  if (X >= R.Right - 22) and (X <= R.Right) and (Y >= R.Top) and (Y <= R.Bottom) then
+    Forms.Application.QueueAsyncCall(@HandleDeferredCloseTab, PtrInt(pgEditors.Pages[TabIdx]));
+  {$ENDIF}
 end;
 
 procedure TMainForm.btnMonitorDbClick(Sender: TObject);
@@ -2204,6 +2329,13 @@ begin
     miDisconnectConn.Caption := 'Desconectar';
 
   miEditConn.Enabled := HasConn;
+  if miSelectSchema <> nil then
+  begin
+    miSelectSchema.Visible := HasConn and (Profile <> nil) and (Profile.DatabaseType = dtPostgreSQL);
+    if miSelectSchema.Visible then
+      miSelectSchema.Caption := Format('Selecionar Schema (%s)...', [Profile.EffectiveSchema]);
+  end;
+  miDuplicateConn.Enabled := HasConn;
   miDeleteConn.Enabled := HasConn;
   miMoveConnUp.Enabled := HasConn and (FindAdjacentVisibleSibling(ConnNode, -1) <> nil);
   miMoveConnDown.Enabled := HasConn and (FindAdjacentVisibleSibling(ConnNode, 1) <> nil);
@@ -2389,6 +2521,142 @@ begin
     MessageDlg('Erro ao excluir objeto', Msg, mtError, [mbOK], 0);
 end;
 
+procedure TMainForm.miDuplicateConnClick(Sender: TObject);
+var
+  Current, Duplicated: TConnectionProfile;
+begin
+  Current := SelectedProfile;
+  if Current = nil then
+  begin
+    MessageDlg('Aviso', 'Selecione uma conexão para duplicar.', mtInformation, [mbOK], 0);
+    Exit;
+  end;
+
+  Duplicated := Current.Clone;
+  try
+    Duplicated.Id := '';
+    Duplicated.Name := Current.Name + ' (Cópia)';
+    if TConnectionForm.Execute(Duplicated, FTestConnection) then
+    begin
+      FManageConnections.Save(Duplicated);
+      RefreshConnectionsTree(Duplicated.Id);
+      StatusBar1.SimpleText := 'Conexão duplicada: ' + Duplicated.Name;
+    end;
+  finally
+    Duplicated.Free;
+  end;
+end;
+
+procedure TMainForm.miSelectSchemaClick(Sender: TObject);
+var
+  Profile, UpdatedProfile: TConnectionProfile;
+  Schemas: TStringList;
+  ErrMsg, ChosenSchema: string;
+  Dlg: TForm;
+  Lbl: TLabel;
+  Lb: TListBox;
+  BtnOk, BtnCancel: TButton;
+  PnlBtn: TPanel;
+  Idx: Integer;
+begin
+  Profile := SelectedProfile;
+  if (Profile = nil) or (Profile.DatabaseType <> dtPostgreSQL) then
+    Exit;
+
+  Schemas := TStringList.Create;
+  try
+    Screen.Cursor := crHourGlass;
+    try
+      if not FTestConnection.ListPostgresSchemas(Profile, Schemas, ErrMsg) then
+      begin
+        MessageDlg('Selecionar Schema', 'Erro ao listar schemas: ' + ErrMsg, mtError, [mbOK], 0);
+        Exit;
+      end;
+    finally
+      Screen.Cursor := crDefault;
+    end;
+
+    if Schemas.Count = 0 then
+    begin
+      MessageDlg('Selecionar Schema', 'Nenhum schema encontrado no banco.', mtInformation, [mbOK], 0);
+      Exit;
+    end;
+
+    Dlg := TForm.CreateNew(nil);
+    try
+      Dlg.Caption := 'Selecionar Schema - ' + Profile.Name;
+      Dlg.Position := poScreenCenter;
+      Dlg.BorderStyle := bsDialog;
+      Dlg.Width := 340;
+      Dlg.Height := 360;
+
+      Lbl := TLabel.Create(Dlg);
+      Lbl.Parent := Dlg;
+      Lbl.Align := alTop;
+      Lbl.BorderSpacing.Around := 10;
+      Lbl.Caption := 'Escolha o schema padrão para esta conexão:';
+
+      PnlBtn := TPanel.Create(Dlg);
+      PnlBtn.Parent := Dlg;
+      PnlBtn.Align := alBottom;
+      PnlBtn.Height := 42;
+      PnlBtn.BevelOuter := bvNone;
+
+      BtnCancel := TButton.Create(Dlg);
+      BtnCancel.Parent := PnlBtn;
+      BtnCancel.Caption := 'Cancelar';
+      BtnCancel.ModalResult := mrCancel;
+      BtnCancel.Cancel := True;
+      BtnCancel.Width := 85;
+      BtnCancel.Height := 26;
+      BtnCancel.Left := PnlBtn.Width - 95;
+      BtnCancel.Top := 8;
+      BtnCancel.Anchors := [akTop, akRight];
+
+      BtnOk := TButton.Create(Dlg);
+      BtnOk.Parent := PnlBtn;
+      BtnOk.Caption := 'Selecionar';
+      BtnOk.ModalResult := mrOk;
+      BtnOk.Default := True;
+      BtnOk.Width := 85;
+      BtnOk.Height := 26;
+      BtnOk.Left := BtnCancel.Left - 93;
+      BtnOk.Top := 8;
+      BtnOk.Anchors := [akTop, akRight];
+
+      Lb := TListBox.Create(Dlg);
+      Lb.Parent := Dlg;
+      Lb.Align := alClient;
+      Lb.BorderSpacing.Left := 10;
+      Lb.BorderSpacing.Right := 10;
+      Lb.Items.Assign(Schemas);
+      Idx := Lb.Items.IndexOf(Profile.EffectiveSchema);
+      if Idx < 0 then
+        Idx := 0;
+      if (Idx >= 0) and (Idx < Lb.Items.Count) then
+        Lb.ItemIndex := Idx;
+
+      if (Dlg.ShowModal = mrOk) and (Lb.ItemIndex >= 0) then
+      begin
+        ChosenSchema := Lb.Items[Lb.ItemIndex];
+        UpdatedProfile := Profile.Clone;
+        try
+          UpdatedProfile.Schema := ChosenSchema;
+          FManageConnections.Save(UpdatedProfile);
+        finally
+          UpdatedProfile.Free;
+        end;
+        RefreshConnectionsTree(Profile.Id);
+        StatusBar1.SimpleText := Format('Schema ativo de "%s" alterado para "%s".', [Profile.Name, ChosenSchema]);
+      end;
+    finally
+      Dlg.Free;
+    end;
+  finally
+    Schemas.Free;
+  end;
+end;
+
 procedure TMainForm.miDisconnectConnClick(Sender: TObject);
 var
   ConnNode: TTreeNode;
@@ -2464,6 +2732,190 @@ end;
 procedure TMainForm.miToolRepairClick(Sender: TObject);
 begin
   OpenMaintenanceDialog(mtkRepair);
+end;
+
+procedure TMainForm.HandleOpenSqlFromHistory(const AProfileId, ASqlText: string);
+var
+  Frame: TSqlEditorFrame;
+begin
+  Frame := OpenNewEditorTab(AProfileId, '');
+  if Frame <> nil then
+    Frame.SetSqlText(ASqlText);
+end;
+
+procedure TMainForm.miToolQueryHistoryClick(Sender: TObject);
+begin
+  TQueryHistoryForm.Execute(FQueryHistory, @HandleOpenSqlFromHistory);
+end;
+
+procedure TMainForm.miToolReplicationClick(Sender: TObject);
+var
+  Profile: TConnectionProfile;
+  InitialId: string;
+begin
+  Profile := SelectedProfile;
+  if Profile <> nil then
+    InitialId := Profile.Id
+  else
+    InitialId := '';
+  TReplicationForm.Execute(FFactory, FConnections, InitialId);
+end;
+
+procedure TMainForm.miToolAboutClick(Sender: TObject);
+var
+  Dlg: TForm;
+  Img: TImage;
+  Pic: TPicture;
+  RS: TResourceStream;
+  LblInfo: TLabel;
+  BtnClose: TButton;
+begin
+  Dlg := TForm.CreateNew(nil);
+  try
+    Dlg.Caption := 'Sobre - Multi-DB SQL Editor';
+    Dlg.Position := poScreenCenter;
+    Dlg.BorderStyle := bsDialog;
+    Dlg.Color := $00221811;
+    Dlg.Width := 560;
+    Dlg.Height := 395;
+
+    Img := TImage.Create(Dlg);
+    Img.Parent := Dlg;
+    Img.Align := alTop;
+    Img.Height := 290;
+    Img.Proportional := True;
+    Img.Center := True;
+    Img.Stretch := True;
+    try
+      RS := TResourceStream.Create(HInstance, 'LOGO_BANNER', PChar(10));
+      try
+        Pic := TPicture.Create;
+        try
+          Pic.LoadFromStream(RS);
+          Img.Picture.Assign(Pic);
+        finally
+          Pic.Free;
+        end;
+      finally
+        RS.Free;
+      end;
+    except
+    end;
+
+    LblInfo := TLabel.Create(Dlg);
+    LblInfo.Parent := Dlg;
+    LblInfo.Left := 16;
+    LblInfo.Top := 302;
+    LblInfo.Font.Color := clWhite;
+    LblInfo.Caption := 'Multi-DB SQL Editor — PostgreSQL • Firebird • MariaDB';
+
+    BtnClose := TButton.Create(Dlg);
+    BtnClose.Parent := Dlg;
+    BtnClose.Caption := 'Fechar';
+    BtnClose.ModalResult := mrClose;
+    BtnClose.Default := True;
+    BtnClose.Cancel := True;
+    BtnClose.Width := 90;
+    BtnClose.Height := 28;
+    BtnClose.Left := Dlg.ClientWidth - 106;
+    BtnClose.Top := 348;
+
+    Dlg.ShowModal;
+  finally
+    Dlg.Free;
+  end;
+end;
+
+procedure TMainForm.ApplyVisualTheme;
+var
+  ImgLogo: TImage;
+  LblTitle, LblSub: TLabel;
+  Ico: TIcon;
+begin
+  Color := $00F0F3F7;
+  pnlLeft.Color := $00F7F9FC;
+  pnlMain.Color := $00F0F3F7;
+  pnlEditorBar.Color := $00F4F6F9;
+  pnlConnActions.Color := $00F4F6F9;
+  pnlConnOrder.Color := $00F4F6F9;
+  pnlTreeFilter.Color := $00F7F9FC;
+  tvConnections.BackgroundColor := $00FAFBFD;
+  tvConnections.OnCustomDrawItem := @tvConnectionsCustomDrawItem;
+
+  if pnlBrandHeader = nil then
+  begin
+    pnlBrandHeader := TPanel.Create(Self);
+    pnlBrandHeader.Parent := Self;
+    pnlBrandHeader.Align := alTop;
+    pnlBrandHeader.Top := 0;
+    pnlBrandHeader.Height := 40;
+    pnlBrandHeader.BevelOuter := bvNone;
+    pnlBrandHeader.Color := $002C1E14;
+
+    ImgLogo := TImage.Create(pnlBrandHeader);
+    ImgLogo.Parent := pnlBrandHeader;
+    ImgLogo.Left := 10;
+    ImgLogo.Top := 4;
+    ImgLogo.Width := 32;
+    ImgLogo.Height := 32;
+    ImgLogo.Proportional := True;
+    ImgLogo.Center := True;
+    ImgLogo.Stretch := True;
+    try
+      Ico := TIcon.Create;
+      try
+        Ico.LoadFromResourceName(HInstance, 'MAINICON');
+        ImgLogo.Picture.Assign(Ico);
+      finally
+        Ico.Free;
+      end;
+    except
+    end;
+
+    LblTitle := TLabel.Create(pnlBrandHeader);
+    LblTitle.Parent := pnlBrandHeader;
+    LblTitle.Left := 50;
+    LblTitle.Top := 5;
+    LblTitle.Font.Color := clWhite;
+    LblTitle.Font.Style := [fsBold];
+    LblTitle.Font.Size := 10;
+    LblTitle.Caption := 'MULTI-DB SQL EDITOR';
+
+    LblSub := TLabel.Create(pnlBrandHeader);
+    LblSub.Parent := pnlBrandHeader;
+    LblSub.Left := 50;
+    LblSub.Top := 22;
+    LblSub.Font.Color := $00E8C298;
+    LblSub.Font.Size := 8;
+    LblSub.Caption := 'PostgreSQL  •  Firebird  •  MariaDB';
+  end;
+end;
+
+procedure TMainForm.tvConnectionsCustomDrawItem(
+  Sender: TCustomTreeView;
+  Node: TTreeNode;
+  State: TCustomDrawState;
+  var DefaultDraw: Boolean
+);
+var
+  Data: TExplorerNodeData;
+begin
+  DefaultDraw := True;
+  if (Node = nil) or (Node.Data = nil) or (cdsSelected in State) then
+    Exit;
+  Data := TExplorerNodeData(Node.Data);
+  if Data.Kind = enkGroup then
+  begin
+    Sender.Canvas.Font.Style := [fsBold];
+    if SameText(Node.Text, 'Firebird') then
+      Sender.Canvas.Font.Color := $001F57D6
+    else if SameText(Node.Text, 'PostgreSQL') then
+      Sender.Canvas.Font.Color := $00B86A22
+    else if SameText(Node.Text, 'MariaDB') then
+      Sender.Canvas.Font.Color := $00807015;
+  end
+  else if Data.Kind = enkConnection then
+    Sender.Canvas.Font.Style := [fsBold];
 end;
 
 end.

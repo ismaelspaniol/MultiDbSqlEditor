@@ -12,10 +12,15 @@ uses
   Domain.ConnectionProfile,
   Domain.QueryResult,
   Domain.Interfaces,
+  Domain.QueryHistory,
+  Domain.ExplainPlanParser,
   Application.ExecuteQueryUseCase,
   Application.AsyncQueryRunner,
+  Application.ManageDatabaseObjectsUseCase,
+  Application.GridDmlHelper,
   Presentation.QueryResultGridFrame,
-  Presentation.SqlCompletionController;
+  Presentation.SqlCompletionController,
+  Presentation.SqlObjectLinkController;
 
 type
   TExecutionStateChangedEvent = procedure(
@@ -45,7 +50,7 @@ type
     lblTxStatus: TLabel;
     SynEdit1: TSynEdit;
     SynSQLSyn1: TSynSQLSyn;
-    Splitter1: TSplitter;
+    Splitter1: TPanel;
     pgBottom: TPageControl;
     tsData: TTabSheet;
     tsPerformance: TTabSheet;
@@ -77,7 +82,13 @@ type
     procedure tmrExecElapsedTimer(Sender: TObject);
     procedure SynEdit1KeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure pnlToolbarResize(Sender: TObject);
-    procedure Splitter1Moved(Sender: TObject);
+    procedure Splitter1MouseDown(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Integer);
+    procedure Splitter1MouseMove(Sender: TObject; Shift: TShiftState; X,
+      Y: Integer);
+    procedure Splitter1MouseUp(Sender: TObject; Button: TMouseButton;
+      Shift: TShiftState; X, Y: Integer);
+    procedure Splitter1Paint(Sender: TObject);
     procedure grdPerfTablesPrepareCanvas(sender: TObject; aCol, aRow: Integer;
       aState: TGridDrawState);
   private
@@ -92,6 +103,9 @@ type
     FCompletionCtrl: TSqlCompletionController;
     FEditorSplitRatio: Double;
     FIsAdjustingSplit: Boolean;
+    FSplitterDragging: Boolean;
+    FSplitDragStartY: Integer;
+    FSplitDragStartHeight: Integer;
     FUpdatingToolbarSize: Boolean;
     FLastToolbarWidth: Integer;
     FIsExecuting: Boolean;
@@ -104,7 +118,15 @@ type
     FLowOsRamTicks: Integer;
     FAutoCancelledByLowOsRam: Boolean;
     FAutoCancelLowRamMessage: string;
+    FDmlHelper: TGridDmlHelper;
+    FLinkCtrl: TSqlObjectLinkController;
+    FQueryHistory: IQueryHistoryService;
+    FLastExecutedSQL: string;
+    tvExplainVisual: TTreeView;
+    btnRunExplain: TButton;
+    chkSpillToDisk: TCheckBox;
     FOnExecutionStateChanged: TExecutionStateChangedEvent;
+    FOnOpenObject: TOpenDbObjectLinkEvent;
     procedure LogMessage(const AMsg: string);
     procedure UpdateTransactionUI;
     procedure UpdateGridFromResult;
@@ -121,9 +143,20 @@ type
     );
     procedure HandleGridNeedMoreRows(Sender: TObject);
     procedure HandleGridExportedCsv(Sender: TObject; const AFileName: string);
+    function TryExtractSingleTableFromSelect(const ASQL: string): string;
+    function HandleGridUpdateCell(const ARowIndex, AColIndex: Integer; const AOldRow: TQueryRow;
+      const ANewIsNull: Boolean; const ANewValue: string; out AError: string): Boolean;
+    function HandleGridInsertRow(const ANewRow: TQueryRow; out AError: string): Boolean;
+    function HandleGridDeleteRow(const AOldRow: TQueryRow; out AError: string): Boolean;
+    procedure HandleOpenObjectLink(const AProfile: TConnectionProfile;
+      const AKind: TSchemaObjectKind; const AObjectName: string);
     procedure UpdateToolbarLayout;
     procedure AdjustEditorSplitHeight;
     procedure UpdateDataTabCaption;
+    procedure PopulateExplainTree(const ARoot: TExplainPlanNode; const ASummary: TExplainPlanSummary);
+    procedure btnRunExplainClick(Sender: TObject);
+    procedure tvExplainVisualCustomDrawItem(Sender: TCustomTreeView; Node: TTreeNode;
+      State: TCustomDrawState; var DefaultDraw: Boolean);
     procedure TryFetchMoreRows;
     procedure ApplyHighlighterForProfile(const AProfile: TConnectionProfile);
     function EnsureSessionConnected: Boolean;
@@ -162,9 +195,16 @@ type
     procedure SetAutoCommit(const AValue: Boolean);
     property OnExecutionStateChanged: TExecutionStateChangedEvent
       read FOnExecutionStateChanged write FOnExecutionStateChanged;
+    property OnOpenObject: TOpenDbObjectLinkEvent
+      read FOnOpenObject write FOnOpenObject;
+    property QueryHistory: IQueryHistoryService
+      read FQueryHistory write FQueryHistory;
   end;
 
 implementation
+
+uses
+  Presentation.TabHelpers;
 
 {$R *.lfm}
 
@@ -195,6 +235,7 @@ begin
   end;
   if FResultGrid <> nil then
     FResultGrid.SetResult(nil, False, False);
+  FreeAndNil(FDmlHelper);
   FreeAndNil(FLastResult);
   FreeAndNil(FProfiles);
   inherited Destroy;
@@ -224,6 +265,8 @@ begin
   FLowOsRamTicks := 0;
   FAutoCancelledByLowOsRam := False;
   FAutoCancelLowRamMessage := '';
+  if FDmlHelper = nil then
+    FDmlHelper := TGridDmlHelper.Create;
 
   {$IFDEF UNIX}
   SynEdit1.Font.Name := 'Monospace';
@@ -235,6 +278,17 @@ begin
   SynEdit1.Highlighter := SynSQLSyn1;
   SynEdit1.Keystrokes.ResetDefaults;
 
+  if FLinkCtrl = nil then
+    FLinkCtrl := TSqlObjectLinkController.Create(
+      Self,
+      SynEdit1,
+      SynSQLSyn1,
+      @SelectedProfile,
+      @ExecuteMetadataQuery,
+      @HandleOpenObjectLink
+    );
+  FLinkCtrl.ClearCache;
+
   if FResultGrid = nil then
   begin
     FResultGrid := TQueryResultGridFrame.Create(Self);
@@ -244,6 +298,9 @@ begin
     FResultGrid.EmptyMessage := 'Nenhuma consulta executada.';
     FResultGrid.OnNeedMoreRows := @HandleGridNeedMoreRows;
     FResultGrid.OnExportedCsv := @HandleGridExportedCsv;
+    FResultGrid.OnUpdateCell := @HandleGridUpdateCell;
+    FResultGrid.OnInsertRow := @HandleGridInsertRow;
+    FResultGrid.OnDeleteRow := @HandleGridDeleteRow;
   end;
   FResultGrid.SetResult(nil, True, False);
 
@@ -254,6 +311,35 @@ begin
       @SelectedProfile,
       @ExecuteMetadataQuery
     );
+
+  if chkSpillToDisk = nil then
+  begin
+    chkSpillToDisk := TCheckBox.Create(Self);
+    chkSpillToDisk.Parent := pnlToolbar;
+    chkSpillToDisk.Caption := 'Disco se faltar RAM';
+    chkSpillToDisk.Hint := 'Quando atingir o limite de RAM ou memória do SO, armazena os resultados em arquivo temporário no disco.';
+    chkSpillToDisk.ShowHint := True;
+    chkSpillToDisk.Checked := False;
+    chkSpillToDisk.AutoSize := True;
+    chkSpillToDisk.BorderSpacing.Right := 8;
+  end;
+
+  if tvExplainVisual = nil then
+  begin
+    btnRunExplain := TButton.Create(Self);
+    btnRunExplain.Parent := pnlPerfSummary;
+    btnRunExplain.Align := alRight;
+    btnRunExplain.Width := 210;
+    btnRunExplain.Caption := 'Plano Visual (EXPLAIN ANALYZE)';
+    btnRunExplain.OnClick := @btnRunExplainClick;
+
+    tvExplainVisual := TTreeView.Create(Self);
+    tvExplainVisual.Parent := pnlPerfPlan;
+    tvExplainVisual.Align := alLeft;
+    tvExplainVisual.Width := 520;
+    tvExplainVisual.ReadOnly := True;
+    tvExplainVisual.OnCustomDrawItem := @tvExplainVisualCustomDrawItem;
+  end;
 
   RefreshConnections(AConnections);
   UpdateTransactionUI;
@@ -311,6 +397,8 @@ procedure TSqlEditorFrame.ClearMetadataCache;
 begin
   if FCompletionCtrl <> nil then
     FCompletionCtrl.ClearMetadataCache;
+  if FLinkCtrl <> nil then
+    FLinkCtrl.ClearCache;
 end;
 
 function TSqlEditorFrame.SelectedProfile: TConnectionProfile;
@@ -423,21 +511,75 @@ begin
     UpdateToolbarLayout;
 end;
 
-procedure TSqlEditorFrame.Splitter1Moved(Sender: TObject);
-var
-  Avail: Integer;
+procedure TSqlEditorFrame.Splitter1MouseDown(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
 begin
-  if FIsAdjustingSplit then
+  if Button <> mbLeft then
     Exit;
+  FSplitterDragging := True;
+  FSplitDragStartY := Splitter1.ClientToScreen(Point(X, Y)).Y;
+  FSplitDragStartHeight := SynEdit1.Height;
+end;
+
+procedure TSqlEditorFrame.Splitter1MouseMove(Sender: TObject; Shift: TShiftState;
+  X, Y: Integer);
+var
+  CurY, Avail, NewHeight: Integer;
+begin
+  if not FSplitterDragging then
+    Exit;
+
+  CurY := Splitter1.ClientToScreen(Point(X, Y)).Y;
   Avail := ClientHeight - pnlToolbar.Height - Splitter1.Height;
-  if Avail > 220 then
+  if Avail <= 100 then
+    Exit;
+
+  NewHeight := FSplitDragStartHeight + (CurY - FSplitDragStartY);
+  if NewHeight < 40 then
+    NewHeight := 40
+  else if NewHeight > Avail - 40 then
+    NewHeight := Avail - 40;
+
+  if SynEdit1.Height <> NewHeight then
   begin
-    FEditorSplitRatio := SynEdit1.Height / Avail;
-    if FEditorSplitRatio < 0.15 then
-      FEditorSplitRatio := 0.15
-    else if FEditorSplitRatio > 0.85 then
-      FEditorSplitRatio := 0.85;
+    FIsAdjustingSplit := True;
+    try
+      SynEdit1.Height := NewHeight;
+    finally
+      FIsAdjustingSplit := False;
+    end;
   end;
+  FEditorSplitRatio := NewHeight / Avail;
+  if FEditorSplitRatio < 0.08 then
+    FEditorSplitRatio := 0.08
+  else if FEditorSplitRatio > 0.92 then
+    FEditorSplitRatio := 0.92;
+end;
+
+procedure TSqlEditorFrame.Splitter1MouseUp(Sender: TObject; Button: TMouseButton;
+  Shift: TShiftState; X, Y: Integer);
+begin
+  if Button = mbLeft then
+    FSplitterDragging := False;
+end;
+
+procedure TSqlEditorFrame.Splitter1Paint(Sender: TObject);
+var
+  C: TCanvas;
+  MidX, MidY: Integer;
+begin
+  C := Splitter1.Canvas;
+  C.Brush.Color := RGBToColor(226, 232, 240);
+  C.FillRect(0, 0, Splitter1.Width, Splitter1.Height);
+  C.Pen.Color := RGBToColor(148, 163, 184);
+  C.Line(0, 0, Splitter1.Width, 0);
+  C.Line(0, Splitter1.Height - 1, Splitter1.Width, Splitter1.Height - 1);
+
+  MidX := Splitter1.Width div 2;
+  MidY := Splitter1.Height div 2;
+  C.Pen.Color := RGBToColor(100, 116, 139);
+  C.Line(MidX - 24, MidY - 1, MidX + 24, MidY - 1);
+  C.Line(MidX - 24, MidY + 1, MidX + 24, MidY + 1);
 end;
 
 procedure TSqlEditorFrame.UpdateToolbarLayout;
@@ -468,13 +610,13 @@ begin
     FEditorSplitRatio := 0.45;
 
   Avail := ClientHeight - pnlToolbar.Height - Splitter1.Height;
-  if Avail > 220 then
+  if Avail > 100 then
   begin
     NewHeight := Round(Avail * FEditorSplitRatio);
-    if NewHeight < 100 then
-      NewHeight := 100
-    else if NewHeight > Avail - 120 then
-      NewHeight := Avail - 120;
+    if NewHeight < 40 then
+      NewHeight := 40
+    else if NewHeight > Avail - 40 then
+      NewHeight := Avail - 40;
 
     if SynEdit1.Height <> NewHeight then
     begin
@@ -523,6 +665,8 @@ var
   TotNonIdx, TotIdx: Int64;
   SysMem: TSystemMemoryInfo;
   OsRamSuffix: string;
+  PlanRoot: TExplainPlanNode;
+  PlanSum: TExplainPlanSummary;
 begin
   if GetSystemMemoryInfo(SysMem) and SysMem.Available then
     OsRamSuffix := Format(
@@ -553,6 +697,8 @@ begin
     lblPerfIO.Caption := 'I/O: ---';
     lblPerfMemory.Caption := 'Memória / Leituras: ---' + OsRamSuffix;
     memPerfPlan.Clear;
+    if tvExplainVisual <> nil then
+      tvExplainVisual.Items.Clear;
     grdPerfTables.RowCount := 1;
     grdPerfTables.ColWidths[0] := 200;
     grdPerfTables.ColWidths[1] := 160;
@@ -599,6 +745,16 @@ begin
     memPerfPlan.Lines.Text := Perf.PlanText
   else
     memPerfPlan.Lines.Text := '(Nenhum plano retornado pelo servidor para esta instrução.)';
+
+  if (tvExplainVisual <> nil) and (Trim(Perf.PlanText) <> '') then
+  begin
+    PlanRoot := TExplainPlanParser.ParseFirebirdPlan(Perf.PlanText, PlanSum);
+    try
+      PopulateExplainTree(PlanRoot, PlanSum);
+    finally
+      PlanRoot.Free;
+    end;
+  end;
 
   grdPerfTables.RowCount := Length(Perf.TableStats) + 1;
   for I := 0 to High(Perf.TableStats) do
@@ -982,7 +1138,7 @@ begin
     Result := FBaseTabCaption
   else if Parent is TTabSheet then
   begin
-    Cap := TTabSheet(Parent).Caption;
+    Cap := StripEditorTabCloseSuffix(TTabSheet(Parent).Caption);
     if Copy(Cap, Length(Cap) - Length(RunningSuffix) + 1, Length(RunningSuffix)) = RunningSuffix then
       Result := Copy(Cap, 1, Length(Cap) - Length(RunningSuffix))
     else
@@ -1023,9 +1179,9 @@ begin
   if Parent is TTabSheet then
   begin
     if FBaseTabCaption <> '' then
-      TTabSheet(Parent).Caption := FBaseTabCaption + ' (Executando...)'
+      SetTabSheetTitle(TTabSheet(Parent), FBaseTabCaption + ' (Executando...)')
     else
-      TTabSheet(Parent).Caption := 'Executando...';
+      SetTabSheetTitle(TTabSheet(Parent), 'Executando...');
   end;
 
   btnExecute.Enabled := False;
@@ -1088,7 +1244,7 @@ begin
   FActiveWorker := nil;
 
   if (Parent is TTabSheet) and (FBaseTabCaption <> '') then
-    TTabSheet(Parent).Caption := FBaseTabCaption;
+    SetTabSheetTitle(TTabSheet(Parent), FBaseTabCaption);
   FBaseTabCaption := '';
 
   btnExecute.Enabled := True;
@@ -1109,6 +1265,7 @@ var
   NewResult: TQueryResult;
   ErrMsg, StatusMsg, AutoLowRamMsg: string;
   WasCancel, AutoLowRam: Boolean;
+  Prof: TConnectionProfile;
 begin
   if AWorker <> FActiveWorker then
     Exit;
@@ -1133,7 +1290,16 @@ begin
   end;
 
   if FResultGrid <> nil then
+  begin
     FResultGrid.SetResult(FLastResult, True, True);
+    if (FLastResult <> nil) and FLastResult.Success and FLastResult.HasResultSet and
+       (FDmlHelper <> nil) and (FDmlHelper.TableName <> '') then
+      FResultGrid.SetEditable(True, FDmlHelper.TableName)
+    else
+      FResultGrid.SetEditable(False);
+  end;
+  if FLinkCtrl <> nil then
+    FLinkCtrl.EnsureLoaded;
   UpdateDataTabCaption;
   UpdatePerformanceUI;
   btnExportCsv.Enabled := (FLastResult <> nil) and FLastResult.HasResultSet and (FLastResult.RowCount > 0);
@@ -1175,6 +1341,36 @@ begin
     StatusMsg := 'Execução finalizada sem resultado.';
     LogMessage(StatusMsg);
     pgBottom.ActivePage := tsMessages;
+  end;
+
+  if (FQueryHistory <> nil) and (Trim(FLastExecutedSQL) <> '') then
+  begin
+    Prof := SelectedProfile;
+    if Prof <> nil then
+    begin
+      if (ErrMsg = '') and (FLastResult <> nil) and FLastResult.Success then
+        FQueryHistory.RecordExecution(
+          Prof.Id, Prof.Name, Prof.DatabaseType, FLastExecutedSQL,
+          FLastResult.ExecutionTimeMs, True, FLastResult.MessageText, ''
+        )
+      else
+      begin
+        if ErrMsg <> '' then
+          StatusMsg := ErrMsg
+        else if FLastResult <> nil then
+          StatusMsg := FLastResult.MessageText;
+        if FLastResult <> nil then
+          FQueryHistory.RecordExecution(
+            Prof.Id, Prof.Name, Prof.DatabaseType, FLastExecutedSQL,
+            FLastResult.ExecutionTimeMs, False, '', StatusMsg
+          )
+        else
+          FQueryHistory.RecordExecution(
+            Prof.Id, Prof.Name, Prof.DatabaseType, FLastExecutedSQL,
+            0, False, '', StatusMsg
+          );
+      end;
+    end;
   end;
 
   UpdateTransactionUI;
@@ -1464,6 +1660,7 @@ begin
     LogMessage('Nenhuma instrução SQL para executar.');
     Exit;
   end;
+  FLastExecutedSQL := SQLToRun;
 
   if FSession = nil then
   begin
@@ -1472,8 +1669,17 @@ begin
   end;
 
   if FResultGrid <> nil then
+  begin
+    FResultGrid.SetEditable(False);
     FResultGrid.SetResult(nil, True, False);
-  FreeAndNil(FLastResult);
+  end;
+  if FDmlHelper <> nil then
+    FDmlHelper.Reset(TryExtractSingleTableFromSelect(SQLText));
+  if FLastResult <> nil then
+  begin
+    FreeAndNil(FLastResult);
+    TrimProcessMemoryUsage;
+  end;
   UpdateGridFromResult;
   UpdatePerformanceUI;
 
@@ -1504,7 +1710,8 @@ begin
     chkAutoCommit.Checked,
     CurrentBatchSize,
     @HandleAsyncQueryCompleted,
-    CurrentMemoryLimitBytes
+    CurrentMemoryLimitBytes,
+    (chkSpillToDisk <> nil) and chkSpillToDisk.Checked
   );
   FActiveWorker.Start;
 end;
@@ -1709,6 +1916,369 @@ begin
   if not EnsureSessionConnected then
     Exit;
   Result := FSession.ExecuteSQL(ASQL, False, 0);
+end;
+
+function TSqlEditorFrame.TryExtractSingleTableFromSelect(const ASQL: string): string;
+var
+  CleanSQL, UpperSQL, AfterFrom, Tok: string;
+  P, ParenDepth, I, Len: Integer;
+  InSingle: Boolean;
+begin
+  Result := '';
+  CleanSQL := Trim(StripLeadingSqlComments(ASQL));
+  if CleanSQL = '' then
+    Exit;
+  UpperSQL := UpperCase(CleanSQL);
+  if Pos('SELECT', UpperSQL) <> 1 then
+    Exit;
+  if (Pos(' JOIN ', UpperSQL) > 0) or (Pos(' UNION ', UpperSQL) > 0) then
+    Exit;
+
+  { Find top-level FROM }
+  ParenDepth := 0;
+  InSingle := False;
+  Len := Length(CleanSQL);
+  P := 0;
+  I := 1;
+  while I <= Len do
+  begin
+    if CleanSQL[I] = '''' then
+      InSingle := not InSingle
+    else if not InSingle then
+    begin
+      if CleanSQL[I] = '(' then
+        Inc(ParenDepth)
+      else if (CleanSQL[I] = ')') and (ParenDepth > 0) then
+        Dec(ParenDepth)
+      else if (ParenDepth = 0) and (I + 4 <= Len) and
+              (UpperCase(Copy(CleanSQL, I, 4)) = 'FROM') and
+              ((I = 1) or (CleanSQL[I - 1] in [' ', #9, #10, #13])) and
+              ((I + 4 > Len) or (CleanSQL[I + 4] in [' ', #9, #10, #13])) then
+      begin
+        P := I + 4;
+        Break;
+      end;
+    end;
+    Inc(I);
+  end;
+  if P <= 0 then
+    Exit;
+
+  AfterFrom := Trim(Copy(CleanSQL, P, MaxInt));
+  if (AfterFrom = '') or (AfterFrom[1] = '(') then
+    Exit;
+
+  { Extract first identifier (supports "Quoted" or schema.table) }
+  Tok := '';
+  I := 1;
+  Len := Length(AfterFrom);
+  while I <= Len do
+  begin
+    if AfterFrom[I] in [' ', #9, #10, #13, ',', ';', '('] then
+      Break;
+    Tok := Tok + AfterFrom[I];
+    Inc(I);
+  end;
+  if (Length(Tok) >= 2) and (Tok[1] = '"') and (Tok[Length(Tok)] = '"') then
+    Tok := Copy(Tok, 2, Length(Tok) - 2);
+  { Reject RDB$ / MON$ / pg_ system tables }
+  if (Pos('RDB$', UpperCase(Tok)) = 1) or (Pos('MON$', UpperCase(Tok)) = 1) or
+     (Pos('PG_', UpperCase(Tok)) = 1) then
+    Exit;
+
+  { Reject comma-joins like FROM A, B or FROM A aliasA, B aliasB }
+  while (I <= Len) and (AfterFrom[I] in [' ', #9, #10, #13]) do
+    Inc(I);
+  if (I <= Len) and (AfterFrom[I] = ',') then
+    Exit;
+  if (I <= Len) and not (AfterFrom[I] in [';', '(', ')']) then
+  begin
+    { Skip optional alias }
+    while (I <= Len) and not (AfterFrom[I] in [' ', #9, #10, #13, ',', ';']) do
+      Inc(I);
+    while (I <= Len) and (AfterFrom[I] in [' ', #9, #10, #13]) do
+      Inc(I);
+    if (I <= Len) and (AfterFrom[I] = ',') then
+      Exit;
+  end;
+
+  Result := Tok;
+end;
+
+function TSqlEditorFrame.HandleGridUpdateCell(
+  const ARowIndex, AColIndex: Integer;
+  const AOldRow: TQueryRow;
+  const ANewIsNull: Boolean;
+  const ANewValue: string;
+  out AError: string
+): Boolean;
+var
+  Profile: TConnectionProfile;
+  ExecutedSQL: string;
+begin
+  Result := False;
+  AError := '';
+  if FIsExecuting then
+  begin
+    AError := 'Aguarde a conclusão da execução em andamento.';
+    Exit;
+  end;
+  Profile := SelectedProfile;
+  if (Profile = nil) or (FLastResult = nil) or (FDmlHelper = nil) then
+  begin
+    AError := 'Tabela editável não identificada.';
+    Exit;
+  end;
+  if not EnsureSessionConnected then
+  begin
+    AError := 'Não foi possível conectar à sessão.';
+    Exit;
+  end;
+
+  Result := FDmlHelper.ExecuteUpdateCell(
+    Profile, FSession, FLastResult, AColIndex, AOldRow,
+    ANewIsNull, ANewValue, chkAutoCommit.Checked, ExecutedSQL, AError
+  );
+  if Result then
+    LogMessage('[Grid UPDATE] ' + ExecutedSQL);
+  UpdateTransactionUI;
+end;
+
+function TSqlEditorFrame.HandleGridInsertRow(
+  const ANewRow: TQueryRow;
+  out AError: string
+): Boolean;
+var
+  Profile: TConnectionProfile;
+  ExecutedSQL: string;
+begin
+  Result := False;
+  AError := '';
+  if FIsExecuting then
+  begin
+    AError := 'Aguarde a conclusão da execução em andamento.';
+    Exit;
+  end;
+  Profile := SelectedProfile;
+  if (Profile = nil) or (FLastResult = nil) or (FDmlHelper = nil) then
+  begin
+    AError := 'Tabela editável não identificada.';
+    Exit;
+  end;
+  if not EnsureSessionConnected then
+  begin
+    AError := 'Não foi possível conectar à sessão.';
+    Exit;
+  end;
+
+  Result := FDmlHelper.ExecuteInsertRow(
+    Profile, FSession, FLastResult, ANewRow, chkAutoCommit.Checked, ExecutedSQL, AError
+  );
+  if Result then
+    LogMessage('[Grid INSERT] ' + ExecutedSQL);
+  UpdateTransactionUI;
+end;
+
+function TSqlEditorFrame.HandleGridDeleteRow(
+  const AOldRow: TQueryRow;
+  out AError: string
+): Boolean;
+var
+  Profile: TConnectionProfile;
+  ExecutedSQL: string;
+begin
+  Result := False;
+  AError := '';
+  if FIsExecuting then
+  begin
+    AError := 'Aguarde a conclusão da execução em andamento.';
+    Exit;
+  end;
+  Profile := SelectedProfile;
+  if (Profile = nil) or (FLastResult = nil) or (FDmlHelper = nil) then
+  begin
+    AError := 'Tabela editável não identificada.';
+    Exit;
+  end;
+  if not EnsureSessionConnected then
+  begin
+    AError := 'Não foi possível conectar à sessão.';
+    Exit;
+  end;
+
+  Result := FDmlHelper.ExecuteDeleteRow(
+    Profile, FSession, FLastResult, AOldRow, chkAutoCommit.Checked, ExecutedSQL, AError
+  );
+  if Result then
+    LogMessage('[Grid DELETE] ' + ExecutedSQL);
+  UpdateTransactionUI;
+end;
+
+procedure TSqlEditorFrame.HandleOpenObjectLink(
+  const AProfile: TConnectionProfile;
+  const AKind: TSchemaObjectKind;
+  const AObjectName: string
+);
+begin
+  if Assigned(FOnOpenObject) then
+    FOnOpenObject(AProfile, AKind, AObjectName);
+end;
+
+procedure TSqlEditorFrame.PopulateExplainTree(
+  const ARoot: TExplainPlanNode;
+  const ASummary: TExplainPlanSummary
+);
+  procedure AddNode(const AParentTree: TTreeNode; const APlanNode: TExplainPlanNode);
+  var
+    TN: TTreeNode;
+    Child: TExplainPlanNode;
+    TagFlags: PtrInt;
+  begin
+    if APlanNode = nil then
+      Exit;
+    TagFlags := 0;
+    if APlanNode.IsFullScan then
+      TagFlags := TagFlags or 1;
+    if APlanNode.HasMemoryBottleneck then
+      TagFlags := TagFlags or 2;
+    TN := tvExplainVisual.Items.AddChildObject(
+      AParentTree,
+      APlanNode.DisplayText(ASummary.RootCost),
+      Pointer(TagFlags)
+    );
+    for Child in APlanNode.Children do
+      AddNode(TN, Child);
+  end;
+begin
+  if tvExplainVisual = nil then
+    Exit;
+  tvExplainVisual.Items.BeginUpdate;
+  try
+    tvExplainVisual.Items.Clear;
+    if ARoot <> nil then
+    begin
+      AddNode(nil, ARoot);
+      tvExplainVisual.FullExpand;
+    end;
+  finally
+    tvExplainVisual.Items.EndUpdate;
+  end;
+end;
+
+procedure TSqlEditorFrame.tvExplainVisualCustomDrawItem(
+  Sender: TCustomTreeView;
+  Node: TTreeNode;
+  State: TCustomDrawState;
+  var DefaultDraw: Boolean
+);
+var
+  Flags: PtrInt;
+begin
+  DefaultDraw := True;
+  if (Node = nil) or (cdsSelected in State) then
+    Exit;
+  Flags := PtrInt(Node.Data);
+  if (Flags and 1) <> 0 then
+  begin
+    Sender.Canvas.Font.Color := clMaroon;
+    Sender.Canvas.Font.Style := [fsBold];
+  end
+  else if (Flags and 2) <> 0 then
+  begin
+    Sender.Canvas.Font.Color := clNavy;
+    Sender.Canvas.Font.Style := [fsBold];
+  end;
+end;
+
+procedure TSqlEditorFrame.btnRunExplainClick(Sender: TObject);
+var
+  Profile: TConnectionProfile;
+  SQLToExplain, ExplainSQL, JsonText: string;
+  Res: TQueryResult;
+  I: Integer;
+  RootNode: TExplainPlanNode;
+  Sum: TExplainPlanSummary;
+begin
+  if FIsExecuting then
+    Exit;
+  Profile := SelectedProfile;
+  if Profile = nil then
+  begin
+    MessageDlg('Plano Visual', 'Selecione uma conexão antes de analisar.', mtInformation, [mbOK], 0);
+    Exit;
+  end;
+
+  if SynEdit1.SelAvail then
+    SQLToExplain := Trim(SynEdit1.SelText)
+  else
+    SQLToExplain := Trim(SynEdit1.Lines.Text);
+  if SQLToExplain = '' then
+  begin
+    MessageDlg('Plano Visual', 'Digite uma consulta SQL para analisar.', mtInformation, [mbOK], 0);
+    Exit;
+  end;
+  while (SQLToExplain <> '') and (SQLToExplain[Length(SQLToExplain)] = ';') do
+    SQLToExplain := TrimRight(Copy(SQLToExplain, 1, Length(SQLToExplain) - 1));
+
+  if Profile.DatabaseType = dtFirebird then
+  begin
+    ExecuteCurrentSQL;
+    pgBottom.ActivePage := tsPerformance;
+    Exit;
+  end;
+
+  if not EnsureSessionConnected then
+    Exit;
+
+  if Profile.DatabaseType = dtPostgreSQL then
+    ExplainSQL := 'EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) ' + SQLToExplain
+  else
+    ExplainSQL := 'EXPLAIN FORMAT=JSON ' + SQLToExplain;
+
+  Screen.Cursor := crHourGlass;
+  try
+    Res := FSession.ExecuteSQL(ExplainSQL, False, 0);
+    try
+      if (Res = nil) or (not Res.Success) then
+      begin
+        if Res <> nil then
+          MessageDlg('Erro no EXPLAIN', Res.MessageText, mtError, [mbOK], 0);
+        Exit;
+      end;
+
+      JsonText := '';
+      for I := 0 to Res.RowCount - 1 do
+      begin
+        if JsonText <> '' then
+          JsonText := JsonText + LineEnding;
+        JsonText := JsonText + Res.GetRow(I)[0].AsText;
+      end;
+
+      memPerfPlan.Lines.Text := JsonText;
+      if Profile.DatabaseType = dtPostgreSQL then
+        RootNode := TExplainPlanParser.ParsePostgresJson(JsonText, Sum)
+      else
+        RootNode := TExplainPlanParser.ParseMariaDbJson(JsonText, Sum);
+      try
+        PopulateExplainTree(RootNode, Sum);
+        lblPerfTiming.Caption := Format(
+          'EXPLAIN | Tempo Total: %.2f ms | Custo Raiz: %.2f | Full Scans: %d | Índices: %d | Gargalos Mem/Sort: %d',
+          [Sum.TotalTimeMs, Sum.RootCost, Sum.FullScanCount, Sum.IndexScanCount, Sum.MemoryBottleneckCount]
+        );
+        if Sum.FullScanCount > 0 then
+          tsPerformance.Caption := Format('Performance (!%d Full Scan)', [Sum.FullScanCount])
+        else
+          tsPerformance.Caption := 'Performance (OK)';
+      finally
+        RootNode.Free;
+      end;
+      pgBottom.ActivePage := tsPerformance;
+    finally
+      Res.Free;
+    end;
+  finally
+    Screen.Cursor := crDefault;
+  end;
 end;
 
 end.

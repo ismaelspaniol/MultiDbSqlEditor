@@ -128,6 +128,7 @@ begin
   Result.Add('password', EncodeSecret(AProfile.Password));
   Result.Add('charset', AProfile.Charset);
   Result.Add('role', AProfile.Role);
+  Result.Add('schema', AProfile.Schema);
   Result.Add('clientLibraryPath', AProfile.ClientLibraryPath);
   Result.Add('firebirdVersion', FirebirdVersionToStr(AProfile.FirebirdVersion));
 end;
@@ -145,6 +146,7 @@ begin
   Result.Password := DecodeSecret(AObj.Get('password', ''));
   Result.Charset := AObj.Get('charset', 'UTF8');
   Result.Role := AObj.Get('role', '');
+  Result.Schema := AObj.Get('schema', 'public');
   Result.ClientLibraryPath := AObj.Get('clientLibraryPath', '');
   Result.FirebirdVersion := StrToFirebirdVersion(AObj.Get('firebirdVersion', 'Auto'));
 end;

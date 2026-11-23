@@ -556,43 +556,55 @@ end;
 
 function TDatabaseMonitorFrame.SelectedConnectionId(out AIsCurrent: Boolean): Int64;
 var
-  Idx: Integer;
+  Idx, ItemIdx: Integer;
 begin
   Result := -1;
   AIsCurrent := False;
   Idx := grdConnections.Row - 1;
   if (FSnapshot <> nil) and (Idx >= 0) and (Idx <= High(FVisibleConnIndices)) then
   begin
-    Result := FSnapshot.Connections[FVisibleConnIndices[Idx]].ConnectionId;
-    AIsCurrent := FSnapshot.Connections[FVisibleConnIndices[Idx]].IsCurrent;
+    ItemIdx := FVisibleConnIndices[Idx];
+    if (ItemIdx >= 0) and (ItemIdx <= High(FSnapshot.Connections)) then
+    begin
+      Result := FSnapshot.Connections[ItemIdx].ConnectionId;
+      AIsCurrent := FSnapshot.Connections[ItemIdx].IsCurrent;
+    end;
   end;
 end;
 
 function TDatabaseMonitorFrame.SelectedTransaction(out ATx: TMonitoredTransaction): Boolean;
 var
-  Idx: Integer;
+  Idx, ItemIdx: Integer;
 begin
   Result := False;
-  FillChar(ATx, SizeOf(ATx), 0);
+  ATx := Default(TMonitoredTransaction);
   Idx := grdTransactions.Row - 1;
   if (FSnapshot <> nil) and (Idx >= 0) and (Idx <= High(FVisibleTxIndices)) then
   begin
-    ATx := FSnapshot.Transactions[FVisibleTxIndices[Idx]];
-    Result := True;
+    ItemIdx := FVisibleTxIndices[Idx];
+    if (ItemIdx >= 0) and (ItemIdx <= High(FSnapshot.Transactions)) then
+    begin
+      ATx := FSnapshot.Transactions[ItemIdx];
+      Result := True;
+    end;
   end;
 end;
 
 function TDatabaseMonitorFrame.SelectedStatement(out AStmt: TMonitoredStatement): Boolean;
 var
-  Idx: Integer;
+  Idx, ItemIdx: Integer;
 begin
   Result := False;
-  FillChar(AStmt, SizeOf(AStmt), 0);
+  AStmt := Default(TMonitoredStatement);
   Idx := grdStatements.Row - 1;
   if (FSnapshot <> nil) and (Idx >= 0) and (Idx <= High(FVisibleStmtIndices)) then
   begin
-    AStmt := FSnapshot.Statements[FVisibleStmtIndices[Idx]];
-    Result := True;
+    ItemIdx := FVisibleStmtIndices[Idx];
+    if (ItemIdx >= 0) and (ItemIdx <= High(FSnapshot.Statements)) then
+    begin
+      AStmt := FSnapshot.Statements[ItemIdx];
+      Result := True;
+    end;
   end;
 end;
 
@@ -700,6 +712,9 @@ begin
   DisconnectSession;
   if FSnapshot <> nil then
     FSnapshot.Clear;
+  SetLength(FVisibleConnIndices, 0);
+  SetLength(FVisibleTxIndices, 0);
+  SetLength(FVisibleStmtIndices, 0);
   grdConnections.Tag := 0;
   grdTransactions.Tag := 0;
   grdStatements.Tag := 0;
@@ -743,25 +758,29 @@ end;
 procedure TDatabaseMonitorFrame.grdConnectionsPrepareCanvas(sender: TObject; aCol, aRow: Integer;
   aState: TGridDrawState);
 var
-  Idx: Integer;
+  Idx, ItemIdx: Integer;
 begin
   if (aRow >= 1) and (not (gdSelected in aState)) and (FSnapshot <> nil) then
   begin
     Idx := aRow - 1;
     if (Idx >= 0) and (Idx <= High(FVisibleConnIndices)) then
     begin
-      if FSnapshot.Connections[FVisibleConnIndices[Idx]].IsCurrent then
+      ItemIdx := FVisibleConnIndices[Idx];
+      if (ItemIdx >= 0) and (ItemIdx <= High(FSnapshot.Connections)) then
       begin
-        grdConnections.Canvas.Font.Color := clGrayText;
-        grdConnections.Canvas.Font.Style := [fsItalic];
-      end
-      else if SameText(FSnapshot.Connections[FVisibleConnIndices[Idx]].State, 'Ativa') or
-              SameText(FSnapshot.Connections[FVisibleConnIndices[Idx]].State, 'active') then
-      begin
-        if aCol = 2 then
+        if FSnapshot.Connections[ItemIdx].IsCurrent then
         begin
-          grdConnections.Canvas.Font.Color := clGreen;
-          grdConnections.Canvas.Font.Style := [fsBold];
+          grdConnections.Canvas.Font.Color := clGrayText;
+          grdConnections.Canvas.Font.Style := [fsItalic];
+        end
+        else if SameText(FSnapshot.Connections[ItemIdx].State, 'Ativa') or
+                SameText(FSnapshot.Connections[ItemIdx].State, 'active') then
+        begin
+          if aCol = 2 then
+          begin
+            grdConnections.Canvas.Font.Color := clGreen;
+            grdConnections.Canvas.Font.Style := [fsBold];
+          end;
         end;
       end;
     end;

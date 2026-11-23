@@ -10,7 +10,8 @@ uses
 type
   TDatabaseType = (
     dtFirebird,
-    dtPostgreSQL
+    dtPostgreSQL,
+    dtMariaDB
   );
 
   TFirebirdVersion = (
@@ -44,6 +45,7 @@ begin
   case AType of
     dtFirebird: Result := 'Firebird';
     dtPostgreSQL: Result := 'PostgreSQL';
+    dtMariaDB: Result := 'MariaDB';
   else
     Result := 'Unknown';
   end;
@@ -58,6 +60,8 @@ begin
     Result := dtFirebird
   else if (Normalized = 'postgresql') or (Normalized = 'postgres') then
     Result := dtPostgreSQL
+  else if (Normalized = 'mariadb') or (Normalized = 'mysql') then
+    Result := dtMariaDB
   else
     raise Exception.CreateFmt('Tipo de banco de dados não suportado: %s', [AValue]);
 end;
@@ -67,6 +71,7 @@ begin
   case AType of
     dtFirebird: Result := 3050;
     dtPostgreSQL: Result := 5432;
+    dtMariaDB: Result := 3306;
   else
     Result := 0;
   end;

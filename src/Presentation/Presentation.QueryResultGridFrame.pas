@@ -11,9 +11,30 @@ uses
 
 type
   TResultGridExportedEvent = procedure(Sender: TObject; const AFileName: string) of object;
+  TResultGridUpdateCellEvent = function(
+    const ARowIndex, AColIndex: Integer;
+    const AOldRow: TQueryRow;
+    const ANewIsNull: Boolean;
+    const ANewValue: string;
+    out AError: string
+  ): Boolean of object;
+  TResultGridInsertRowEvent = function(
+    const ANewRow: TQueryRow;
+    out AError: string
+  ): Boolean of object;
+  TResultGridDeleteRowEvent = function(
+    const AOldRow: TQueryRow;
+    out AError: string
+  ): Boolean of object;
 
-  { Frame reutilizável de exibição, ordenação, cópia e exportação CSV de TQueryResult }
+  { Frame reutilizável de exibição, ordenação, edição, cópia e exportação CSV de TQueryResult }
   TQueryResultGridFrame = class(TFrame)
+    pnlEditBar: TPanel;
+    btnInsertRow: TButton;
+    btnSaveNewRow: TButton;
+    btnDeleteRow: TButton;
+    btnSetNull: TButton;
+    lblEditTable: TLabel;
     grdResults: TDrawGrid;
     pnlGridFooter: TPanel;
     lblGridSummary: TLabel;
@@ -27,8 +48,17 @@ type
     miCopyColName: TMenuItem;
     miGridSep2: TMenuItem;
     miExportCsv: TMenuItem;
+    miGridSep3: TMenuItem;
+    miInsertRow: TMenuItem;
+    miDeleteRow: TMenuItem;
+    miSetNull: TMenuItem;
     procedure grdResultsDrawCell(Sender: TObject; aCol, aRow: Integer;
       aRect: TRect; aState: TGridDrawState);
+    procedure grdResultsGetEditText(Sender: TObject; aCol, aRow: Integer;
+      var aValue: string);
+    procedure grdResultsSetEditText(Sender: TObject; aCol, aRow: Integer;
+      const aValue: string);
+    procedure grdResultsEditingDone(Sender: TObject);
     procedure grdResultsHeaderClick(Sender: TObject; IsColumn: Boolean; Index: Integer);
     procedure grdResultsKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure grdResultsMouseDown(Sender: TObject; Button: TMouseButton;
@@ -41,6 +71,10 @@ type
     procedure miCopyRowWithHeaderClick(Sender: TObject);
     procedure miCopyColNameClick(Sender: TObject);
     procedure miExportCsvClick(Sender: TObject);
+    procedure btnInsertRowClick(Sender: TObject);
+    procedure btnSaveNewRowClick(Sender: TObject);
+    procedure btnDeleteRowClick(Sender: TObject);
+    procedure btnSetNullClick(Sender: TObject);
   private
     FResult: TQueryResult; // Referência não-proprietária
     FSortCol: Integer;
@@ -48,10 +82,22 @@ type
     FLastClickedGridCol: Integer;
     FSortingEnabled: Boolean;
     FExportEnabled: Boolean;
+    FEditable: Boolean;
+    FEditableTableName: string;
+    FNewRowIndex: Integer;
+    FHasPendingEdit: Boolean;
+    FPendingEditRow: Integer;
+    FPendingEditCol: Integer;
+    FPendingEditValue: string;
     FEmptyMessage: string;
     FOnNeedMoreRows: TNotifyEvent;
     FOnExportedCsv: TResultGridExportedEvent;
+    FOnUpdateCell: TResultGridUpdateCellEvent;
+    FOnInsertRow: TResultGridInsertRowEvent;
+    FOnDeleteRow: TResultGridDeleteRowEvent;
     procedure SetEmptyMessage(const AValue: string);
+    procedure UpdateEditButtonsState;
+    procedure CommitPendingCellEdit;
     function GetGridCellText(const ACol, ARow: Integer): string;
     procedure CopySelectedCell;
     procedure CopySelectedRange;
@@ -65,6 +111,7 @@ type
       const AResetSort: Boolean = True;
       const AAutoFit: Boolean = True
     );
+    procedure SetEditable(const AEditable: Boolean; const ATableName: string = '');
     procedure RefreshRowCount;
     procedure UpdateSummaryText;
     procedure SetCustomSummary(const AText: string);
@@ -77,6 +124,9 @@ type
     property EmptyMessage: string read FEmptyMessage write SetEmptyMessage;
     property OnNeedMoreRows: TNotifyEvent read FOnNeedMoreRows write FOnNeedMoreRows;
     property OnExportedCsv: TResultGridExportedEvent read FOnExportedCsv write FOnExportedCsv;
+    property OnUpdateCell: TResultGridUpdateCellEvent read FOnUpdateCell write FOnUpdateCell;
+    property OnInsertRow: TResultGridInsertRowEvent read FOnInsertRow write FOnInsertRow;
+    property OnDeleteRow: TResultGridDeleteRowEvent read FOnDeleteRow write FOnDeleteRow;
   end;
 
 implementation
@@ -92,7 +142,50 @@ begin
   FLastClickedGridCol := -1;
   FSortingEnabled := True;
   FExportEnabled := True;
+  FEditable := False;
+  FNewRowIndex := -1;
+  FHasPendingEdit := False;
   FEmptyMessage := 'Nenhuma consulta executada.';
+end;
+
+procedure TQueryResultGridFrame.SetEditable(const AEditable: Boolean; const ATableName: string);
+begin
+  FEditable := AEditable and (FResult <> nil) and FResult.HasResultSet and (FResult.ColumnCount > 0);
+  FEditableTableName := ATableName;
+  FNewRowIndex := -1;
+  FHasPendingEdit := False;
+
+  if FEditable then
+  begin
+    grdResults.Options := grdResults.Options + [goEditing];
+    if pnlEditBar <> nil then
+      pnlEditBar.Visible := True;
+    if lblEditTable <> nil then
+      lblEditTable.Caption := Format('Edição: %s (use Commit/Rollback acima)', [FEditableTableName]);
+  end
+  else
+  begin
+    grdResults.Options := grdResults.Options - [goEditing];
+    if pnlEditBar <> nil then
+      pnlEditBar.Visible := False;
+  end;
+  UpdateEditButtonsState;
+end;
+
+procedure TQueryResultGridFrame.UpdateEditButtonsState;
+var
+  HasValidRow: Boolean;
+begin
+  HasValidRow := FEditable and (FResult <> nil) and (FResult.RowCount > 0) and
+    (grdResults.Row >= 1) and (grdResults.Row - 1 < FResult.RowCount);
+  if btnInsertRow <> nil then
+    btnInsertRow.Enabled := FEditable and (FNewRowIndex < 0);
+  if btnSaveNewRow <> nil then
+    btnSaveNewRow.Enabled := FEditable and (FNewRowIndex >= 0);
+  if btnDeleteRow <> nil then
+    btnDeleteRow.Enabled := HasValidRow;
+  if btnSetNull <> nil then
+    btnSetNull.Enabled := HasValidRow and (grdResults.Col >= 0) and (grdResults.Col < FResult.ColumnCount);
 end;
 
 procedure TQueryResultGridFrame.SetEmptyMessage(const AValue: string);
@@ -109,6 +202,8 @@ procedure TQueryResultGridFrame.SetResult(
 );
 begin
   FResult := AResult;
+  FNewRowIndex := -1;
+  FHasPendingEdit := False;
   if AResetSort then
   begin
     FSortCol := -1;
@@ -164,7 +259,12 @@ begin
   else
     MemInfo := Format('%s (sem limite)', [FormatByteSize(FResult.EstimatedMemoryBytes)]);
 
-  if FResult.SystemMemoryLow then
+  if FResult.SpilledToDisk then
+    lblGridSummary.Caption := Format(
+      '[ARMAZENADO EM DISCO] %d registro(s) | Tempo: %d ms',
+      [FResult.RowCount, FResult.ExecutionTimeMs]
+    )
+  else if FResult.SystemMemoryLow then
     lblGridSummary.Caption := Format(
       '[PROTEÇÃO RAM DO SO] %d registro(s) mantidos | RAM: %s | Tempo: %d ms',
       [FResult.RowCount, MemInfo, FResult.ExecutionTimeMs]
@@ -314,6 +414,11 @@ begin
        ((goRowSelect in grdResults.Options) and not (goRelaxedRowSelect in grdResults.Options)));
 
     Row := FResult.GetRow(aRow - 1);
+    if (not IsCellSelected) and (aRow - 1 = FNewRowIndex) then
+    begin
+      grdResults.Canvas.Brush.Color := RGBToColor(240, 253, 244);
+      grdResults.Canvas.FillRect(aRect);
+    end;
     if (aCol >= Length(Row)) or Row[aCol].IsNull then
     begin
       grdResults.Canvas.Font.Style := [fsItalic];
@@ -502,6 +607,202 @@ begin
   miGridSep2.Visible := FExportEnabled;
   miExportCsv.Visible := FExportEnabled;
   miExportCsv.Enabled := FExportEnabled and CanExportCsv;
+
+  miGridSep3.Visible := FEditable;
+  miInsertRow.Visible := FEditable;
+  miInsertRow.Enabled := FEditable and (FNewRowIndex < 0);
+  miDeleteRow.Visible := FEditable;
+  miDeleteRow.Enabled := FEditable and HasValidRow;
+  miSetNull.Visible := FEditable;
+  miSetNull.Enabled := FEditable and HasValidRow and (grdResults.Col >= 0) and (grdResults.Col < FResult.ColumnCount);
+end;
+
+procedure TQueryResultGridFrame.grdResultsGetEditText(Sender: TObject; aCol, aRow: Integer;
+  var aValue: string);
+begin
+  aValue := GetGridCellText(aCol, aRow);
+end;
+
+procedure TQueryResultGridFrame.grdResultsSetEditText(Sender: TObject; aCol, aRow: Integer;
+  const aValue: string);
+begin
+  if (not FEditable) or (FResult = nil) or (aRow < 1) or (aRow - 1 >= FResult.RowCount) then
+    Exit;
+  FPendingEditRow := aRow - 1;
+  FPendingEditCol := aCol;
+  FPendingEditValue := aValue;
+  FHasPendingEdit := True;
+end;
+
+procedure TQueryResultGridFrame.CommitPendingCellEdit;
+var
+  OldRow: TQueryRow;
+  OldIsNull: Boolean;
+  OldText, Err: string;
+begin
+  if (not FHasPendingEdit) or (not FEditable) or (FResult = nil) then
+  begin
+    FHasPendingEdit := False;
+    Exit;
+  end;
+  FHasPendingEdit := False;
+
+  if (FPendingEditRow < 0) or (FPendingEditRow >= FResult.RowCount) or
+     (FPendingEditCol < 0) or (FPendingEditCol >= FResult.ColumnCount) then
+    Exit;
+
+  OldRow := FResult.GetRow(FPendingEditRow);
+  OldIsNull := (FPendingEditCol >= Length(OldRow)) or OldRow[FPendingEditCol].IsNull;
+  if OldIsNull then
+    OldText := ''
+  else
+    OldText := OldRow[FPendingEditCol].AsText;
+
+  { If cell was NULL and user left it empty without typing, keep NULL }
+  if OldIsNull and (FPendingEditValue = '') then
+    Exit;
+  if (not OldIsNull) and (FPendingEditValue = OldText) then
+    Exit;
+
+  if FPendingEditRow = FNewRowIndex then
+  begin
+    FResult.UpdateCell(FPendingEditRow, FPendingEditCol, False, FPendingEditValue);
+    grdResults.Invalidate;
+    Exit;
+  end;
+
+  if Assigned(FOnUpdateCell) then
+  begin
+    if FOnUpdateCell(FPendingEditRow, FPendingEditCol, OldRow, False, FPendingEditValue, Err) then
+    begin
+      FResult.UpdateCell(FPendingEditRow, FPendingEditCol, False, FPendingEditValue);
+      grdResults.Invalidate;
+    end
+    else
+      MessageDlg('Erro ao Atualizar Célula', Err, mtError, [mbOK], 0);
+  end;
+end;
+
+procedure TQueryResultGridFrame.grdResultsEditingDone(Sender: TObject);
+begin
+  CommitPendingCellEdit;
+end;
+
+procedure TQueryResultGridFrame.btnInsertRowClick(Sender: TObject);
+begin
+  if (not FEditable) or (FResult = nil) or (FNewRowIndex >= 0) then
+    Exit;
+  CommitPendingCellEdit;
+  FNewRowIndex := FResult.InsertEmptyRow;
+  RefreshRowCount;
+  grdResults.Row := FNewRowIndex + 1;
+  grdResults.Col := 0;
+  grdResults.Invalidate;
+  UpdateEditButtonsState;
+  grdResults.SetFocus;
+end;
+
+procedure TQueryResultGridFrame.btnSaveNewRowClick(Sender: TObject);
+var
+  Err: string;
+begin
+  if (not FEditable) or (FResult = nil) or (FNewRowIndex < 0) then
+    Exit;
+  if grdResults.EditorMode then
+    grdResults.EditorMode := False;
+  CommitPendingCellEdit;
+
+  if Assigned(FOnInsertRow) then
+  begin
+    if FOnInsertRow(FResult.GetRow(FNewRowIndex), Err) then
+    begin
+      FNewRowIndex := -1;
+      grdResults.Invalidate;
+      UpdateEditButtonsState;
+      UpdateSummaryText;
+    end
+    else
+      MessageDlg('Erro ao Inserir Linha', Err, mtError, [mbOK], 0);
+  end;
+end;
+
+procedure TQueryResultGridFrame.btnDeleteRowClick(Sender: TObject);
+var
+  RowIdx: Integer;
+  Err: string;
+begin
+  if (not FEditable) or (FResult = nil) or (grdResults.Row < 1) then
+    Exit;
+  RowIdx := grdResults.Row - 1;
+  if RowIdx >= FResult.RowCount then
+    Exit;
+
+  if RowIdx = FNewRowIndex then
+  begin
+    FHasPendingEdit := False;
+    FResult.DeleteRow(RowIdx);
+    FNewRowIndex := -1;
+    RefreshRowCount;
+    grdResults.Invalidate;
+    UpdateEditButtonsState;
+    Exit;
+  end;
+
+  if MessageDlg('Confirmar Exclusão', 'Deseja excluir a linha selecionada (poderá confirmar com Commit ou desfazer com Rollback)?',
+    mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    Exit;
+
+  if Assigned(FOnDeleteRow) then
+  begin
+    if FOnDeleteRow(FResult.GetRow(RowIdx), Err) then
+    begin
+      FResult.DeleteRow(RowIdx);
+      if FNewRowIndex > RowIdx then
+        Dec(FNewRowIndex);
+      RefreshRowCount;
+      grdResults.Invalidate;
+      UpdateEditButtonsState;
+    end
+    else
+      MessageDlg('Erro ao Excluir Linha', Err, mtError, [mbOK], 0);
+  end;
+end;
+
+procedure TQueryResultGridFrame.btnSetNullClick(Sender: TObject);
+var
+  RowIdx, ColIdx: Integer;
+  OldRow: TQueryRow;
+  Err: string;
+begin
+  if (not FEditable) or (FResult = nil) or (grdResults.Row < 1) then
+    Exit;
+  RowIdx := grdResults.Row - 1;
+  ColIdx := grdResults.Col;
+  if (RowIdx < 0) or (RowIdx >= FResult.RowCount) or (ColIdx < 0) or (ColIdx >= FResult.ColumnCount) then
+    Exit;
+
+  if grdResults.EditorMode then
+    grdResults.EditorMode := False;
+  FHasPendingEdit := False;
+
+  if RowIdx = FNewRowIndex then
+  begin
+    FResult.UpdateCell(RowIdx, ColIdx, True, '');
+    grdResults.Invalidate;
+    Exit;
+  end;
+
+  OldRow := FResult.GetRow(RowIdx);
+  if Assigned(FOnUpdateCell) then
+  begin
+    if FOnUpdateCell(RowIdx, ColIdx, OldRow, True, '', Err) then
+    begin
+      FResult.UpdateCell(RowIdx, ColIdx, True, '');
+      grdResults.Invalidate;
+    end
+    else
+      MessageDlg('Erro ao Definir NULL', Err, mtError, [mbOK], 0);
+  end;
 end;
 
 procedure TQueryResultGridFrame.miCopyCellClick(Sender: TObject);

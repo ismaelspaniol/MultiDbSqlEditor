@@ -26,9 +26,11 @@ uses
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
   Domain.QueryResult,
+  Domain.Interfaces,
   Domain.TableStructureTypes,
   Application.ManageDatabaseObjectsUseCase,
   Application.ManageTableStructureUseCase,
+  Application.GridDmlHelper,
   Presentation.QueryResultGridFrame,
   Presentation.SqlCompletionController;
 
@@ -119,6 +121,8 @@ type
     lblDataWhere: TLabel;
     edtDataWhere: TEdit;
     btnOpenDataInSql: TButton;
+    btnDataCommit: TButton;
+    btnDataRollback: TButton;
     tsDependencies: TTabSheet;
     pnlDepFilter: TFlowPanel;
     lblDepScope: TLabel;
@@ -197,6 +201,8 @@ type
     procedure btnCopyTableDDLClick(Sender: TObject);
     procedure btnOpenDDLInSqlClick(Sender: TObject);
     procedure chkIncludeTriggersDDLClick(Sender: TObject);
+    procedure btnDataCommitClick(Sender: TObject);
+    procedure btnDataRollbackClick(Sender: TObject);
   private
     FProfile: TConnectionProfile;
     FTableName: string;
@@ -205,6 +211,8 @@ type
     FUsedByDeps: TTableDependencyInfoArray;
     FUsesDeps: TTableDependencyInfoArray;
     FDataGrid: TQueryResultGridFrame;
+    FDataSession: IDatabaseSession;
+    FDataDmlHelper: TGridDmlHelper;
     FLastDataResult: TQueryResult;
     FDataLoaded: Boolean;
     FTriggerCompletion: TSqlCompletionController;
@@ -265,6 +273,13 @@ type
     function BuildDataSelectSQL: string;
     procedure LoadTableDataGrid;
     procedure HandleDataGridExportedCsv(Sender: TObject; const AFileName: string);
+    function EnsureDataSessionConnected: Boolean;
+    procedure DisconnectDataSession;
+    procedure UpdateDataTransactionUI;
+    function HandleDataGridUpdateCell(const ARowIndex, AColIndex: Integer; const AOldRow: TQueryRow;
+      const ANewIsNull: Boolean; const ANewValue: string; out AError: string): Boolean;
+    function HandleDataGridInsertRow(const ANewRow: TQueryRow; out AError: string): Boolean;
+    function HandleDataGridDeleteRow(const AOldRow: TQueryRow; out AError: string): Boolean;
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -615,6 +630,8 @@ begin
   FUsedByDeps := nil;
   FUsesDeps := nil;
   FDataGrid := nil;
+  FDataSession := nil;
+  FDataDmlHelper := TGridDmlHelper.Create;
   FLastDataResult := nil;
   FDataLoaded := False;
   FTriggerCompletion := nil;
@@ -644,8 +661,10 @@ end;
 
 destructor TTableEditorFrame.Destroy;
 begin
+  DisconnectDataSession;
   if FDataGrid <> nil then
     FDataGrid.SetResult(nil, False, False);
+  FreeAndNil(FDataDmlHelper);
   FreeAndNil(FLastDataResult);
   FUsedByDeps := nil;
   FUsesDeps := nil;
@@ -660,8 +679,12 @@ procedure TTableEditorFrame.Initialize(
   const AUseCase: TManageTableStructureUseCase
 );
 begin
+  DisconnectDataSession;
   if FDataGrid <> nil then
+  begin
+    FDataGrid.SetEditable(False);
     FDataGrid.SetResult(nil, False, False);
+  end;
   FreeAndNil(FLastDataResult);
   FDataLoaded := False;
 
@@ -670,6 +693,8 @@ begin
     FProfile := AProfile.Clone;
   FTableName := Trim(ATableName);
   FUseCase := AUseCase;
+  if FDataDmlHelper <> nil then
+    FDataDmlHelper.Reset(FTableName);
 
   if (FProfile <> nil) and (FProfile.DatabaseType = dtPostgreSQL) then
   begin
@@ -696,8 +721,13 @@ begin
     FDataGrid.Align := alClient;
     FDataGrid.EmptyMessage := 'Clique em "Atualizar Dados" ou abra a aba Dados para carregar os registros.';
     FDataGrid.OnExportedCsv := @HandleDataGridExportedCsv;
+    FDataGrid.OnUpdateCell := @HandleDataGridUpdateCell;
+    FDataGrid.OnInsertRow := @HandleDataGridInsertRow;
+    FDataGrid.OnDeleteRow := @HandleDataGridDeleteRow;
   end;
+  FDataGrid.SetEditable(False);
   FDataGrid.SetResult(nil, True, False);
+  UpdateDataTransactionUI;
 
   if FTriggerCompletion = nil then
     FTriggerCompletion := TSqlCompletionController.Create(
@@ -2294,26 +2324,36 @@ begin
     FreeAndNil(FLastDataResult);
 
     try
-      Res := FUseCase.LoadTableData(
-        FProfile,
-        FTableName,
-        edtDataWhere.Text,
-        SelectedDataLimit,
-        ExecutedSQL
-      );
+      if (FDataSession <> nil) and FDataSession.IsConnected and FDataSession.InTransaction then
+      begin
+        ExecutedSQL := BuildDataSelectSQL;
+        Res := FDataSession.ExecuteSQL(ExecutedSQL, False, 0);
+      end
+      else
+        Res := FUseCase.LoadTableData(
+          FProfile,
+          FTableName,
+          edtDataWhere.Text,
+          SelectedDataLimit,
+          ExecutedSQL
+        );
       FLastDataResult := Res;
       FDataLoaded := True;
 
       if FLastDataResult = nil then
       begin
         if FDataGrid <> nil then
+        begin
+          FDataGrid.SetEditable(False);
           FDataGrid.SetResult(nil, True, False);
+        end;
         lblStatus.Caption := 'Nenhum resultado retornado.';
       end
       else if not FLastDataResult.Success then
       begin
         if FDataGrid <> nil then
         begin
+          FDataGrid.SetEditable(False);
           FDataGrid.SetResult(nil, True, False);
           FDataGrid.SetCustomSummary('Erro: ' + FLastDataResult.MessageText);
         end;
@@ -2323,7 +2363,10 @@ begin
       else
       begin
         if FDataGrid <> nil then
+        begin
           FDataGrid.SetResult(FLastDataResult, True, True);
+          FDataGrid.SetEditable(FLastDataResult.HasResultSet and (FTableName <> ''), FTableName);
+        end;
         if FLastDataResult.SystemMemoryLow then
         begin
           lblStatus.Caption := Format('Proteção RAM do SO em "%s": %d registro(s) mantidos.', [
@@ -2999,6 +3042,166 @@ end;
 procedure TTableEditorFrame.chkIncludeTriggersDDLClick(Sender: TObject);
 begin
   RefreshDDLPreview;
+end;
+
+function TTableEditorFrame.EnsureDataSessionConnected: Boolean;
+var
+  Provider: IDatabaseProvider;
+begin
+  Result := False;
+  if (FProfile = nil) or (FUseCase = nil) or (FUseCase.Factory = nil) then
+    Exit;
+  if FDataSession = nil then
+  begin
+    Provider := FUseCase.Factory.GetProvider(FProfile.DatabaseType);
+    FDataSession := Provider.CreateSession(FProfile);
+  end;
+  if not FDataSession.IsConnected then
+    FDataSession.Connect;
+  Result := FDataSession.IsConnected;
+end;
+
+procedure TTableEditorFrame.DisconnectDataSession;
+begin
+  if FDataSession <> nil then
+  begin
+    try
+      if FDataSession.InTransaction then
+        FDataSession.Rollback;
+      FDataSession.Disconnect;
+    except
+    end;
+    FDataSession := nil;
+  end;
+  UpdateDataTransactionUI;
+end;
+
+procedure TTableEditorFrame.UpdateDataTransactionUI;
+var
+  InTx: Boolean;
+begin
+  InTx := (FDataSession <> nil) and FDataSession.IsConnected and FDataSession.InTransaction;
+  if btnDataCommit <> nil then
+    btnDataCommit.Enabled := InTx;
+  if btnDataRollback <> nil then
+    btnDataRollback.Enabled := InTx;
+end;
+
+function TTableEditorFrame.HandleDataGridUpdateCell(
+  const ARowIndex, AColIndex: Integer;
+  const AOldRow: TQueryRow;
+  const ANewIsNull: Boolean;
+  const ANewValue: string;
+  out AError: string
+): Boolean;
+var
+  ExecutedSQL: string;
+begin
+  Result := False;
+  AError := '';
+  if (FProfile = nil) or (FLastDataResult = nil) or (FDataDmlHelper = nil) then
+  begin
+    AError := 'Tabela editável não identificada.';
+    Exit;
+  end;
+  if not EnsureDataSessionConnected then
+  begin
+    AError := 'Não foi possível conectar à sessão.';
+    Exit;
+  end;
+
+  Result := FDataDmlHelper.ExecuteUpdateCell(
+    FProfile, FDataSession, FLastDataResult, AColIndex, AOldRow,
+    ANewIsNull, ANewValue, False, ExecutedSQL, AError
+  );
+  if Result then
+    lblStatus.Caption := 'Linha atualizada (pendente de Commit/Rollback).';
+  UpdateDataTransactionUI;
+end;
+
+function TTableEditorFrame.HandleDataGridInsertRow(
+  const ANewRow: TQueryRow;
+  out AError: string
+): Boolean;
+var
+  ExecutedSQL: string;
+begin
+  Result := False;
+  AError := '';
+  if (FProfile = nil) or (FLastDataResult = nil) or (FDataDmlHelper = nil) then
+  begin
+    AError := 'Tabela editável não identificada.';
+    Exit;
+  end;
+  if not EnsureDataSessionConnected then
+  begin
+    AError := 'Não foi possível conectar à sessão.';
+    Exit;
+  end;
+
+  Result := FDataDmlHelper.ExecuteInsertRow(
+    FProfile, FDataSession, FLastDataResult, ANewRow, False, ExecutedSQL, AError
+  );
+  if Result then
+    lblStatus.Caption := 'Nova linha inserida (pendente de Commit/Rollback).';
+  UpdateDataTransactionUI;
+end;
+
+function TTableEditorFrame.HandleDataGridDeleteRow(
+  const AOldRow: TQueryRow;
+  out AError: string
+): Boolean;
+var
+  ExecutedSQL: string;
+begin
+  Result := False;
+  AError := '';
+  if (FProfile = nil) or (FLastDataResult = nil) or (FDataDmlHelper = nil) then
+  begin
+    AError := 'Tabela editável não identificada.';
+    Exit;
+  end;
+  if not EnsureDataSessionConnected then
+  begin
+    AError := 'Não foi possível conectar à sessão.';
+    Exit;
+  end;
+
+  Result := FDataDmlHelper.ExecuteDeleteRow(
+    FProfile, FDataSession, FLastDataResult, AOldRow, False, ExecutedSQL, AError
+  );
+  if Result then
+    lblStatus.Caption := 'Linha excluída (pendente de Commit/Rollback).';
+  UpdateDataTransactionUI;
+end;
+
+procedure TTableEditorFrame.btnDataCommitClick(Sender: TObject);
+begin
+  if (FDataSession = nil) or (not FDataSession.InTransaction) then
+    Exit;
+  try
+    FDataSession.Commit;
+    lblStatus.Caption := Format('Alterações em "%s" confirmadas (Commit).', [FTableName]);
+  except
+    on E: Exception do
+      MessageDlg('Erro ao confirmar (Commit)', E.Message, mtError, [mbOK], 0);
+  end;
+  UpdateDataTransactionUI;
+end;
+
+procedure TTableEditorFrame.btnDataRollbackClick(Sender: TObject);
+begin
+  if (FDataSession = nil) or (not FDataSession.InTransaction) then
+    Exit;
+  try
+    FDataSession.Rollback;
+    lblStatus.Caption := Format('Alterações em "%s" desfeitas (Rollback).', [FTableName]);
+  except
+    on E: Exception do
+      MessageDlg('Erro ao desfazer (Rollback)', E.Message, mtError, [mbOK], 0);
+  end;
+  UpdateDataTransactionUI;
+  LoadTableDataGrid;
 end;
 
 end.

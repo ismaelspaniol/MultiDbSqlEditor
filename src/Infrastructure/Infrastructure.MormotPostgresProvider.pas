@@ -721,6 +721,10 @@ begin
 end;
 
 procedure TMormotPostgresSession.Connect;
+var
+  SchemaName, SafeSchema, SearchPathSQL: string;
+  RawStmt: TSqlDBStatement;
+  Stmt: ISqlDBStatement;
 begin
   if IsConnected then
     Exit;
@@ -728,6 +732,19 @@ begin
     FConn := FProps.NewConnection;
   FConn.Connect;
   CaptureBackendPid;
+  if FProfile <> nil then
+  begin
+    SchemaName := FProfile.EffectiveSchema;
+    if (SchemaName <> '') and (not SameText(SchemaName, 'public')) then
+    begin
+      SafeSchema := '"' + StringReplace(SchemaName, '"', '""', [rfReplaceAll]) + '"';
+      SearchPathSQL := 'SET search_path TO ' + SafeSchema + ', public';
+      RawStmt := FConn.NewStatement;
+      Stmt := RawStmt;
+      RawStmt.Prepare(RawUtf8(SearchPathSQL), False);
+      Stmt.ExecutePrepared;
+    end;
+  end;
 end;
 
 procedure TMormotPostgresSession.Disconnect;

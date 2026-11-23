@@ -22,6 +22,7 @@ uses
   Presentation.MainForm;
 
 {$R *.res}
+{$R MultiDbSqlEditor_brand.res}
 
 begin
   RequireDerivedFormResource := True;

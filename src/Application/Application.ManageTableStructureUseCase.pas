@@ -35,6 +35,11 @@ type
       const ATableName: string;
       const AStructure: TTableStructure
     );
+    procedure LoadMariaDbStructure(
+      const ASession: IDatabaseSession;
+      const ATableName: string;
+      const AStructure: TTableStructure
+    );
     procedure LoadFirebirdFieldDependencies(
       const ASession: IDatabaseSession;
       const ATableName, AFieldName: string;
@@ -127,6 +132,7 @@ type
       const AProfile: TConnectionProfile;
       const ASQL: string
     ): TQueryResult;
+    property Factory: IDatabaseProviderFactory read FFactory;
   end;
 
 procedure AddUniqueDependencyToArray(
@@ -463,6 +469,8 @@ begin
   if (Length(S) > 7) and SameText(Copy(S, 1, 7), 'DEFAULT') and
      (S[8] in [' ', #9, #10, #13]) then
     S := Trim(Copy(S, 8, MaxInt));
+  if (Length(S) >= 1) and (S[1] = '=') then
+    S := Trim(Copy(S, 2, MaxInt));
   Result := S;
 end;
 
@@ -1687,7 +1695,7 @@ begin
     'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
     'JOIN pg_type t ON t.oid = a.atttypid ' +
     'LEFT JOIN pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum ' +
-    'WHERE n.nspname = ''public'' AND lower(c.relname) = lower(''%s'') ' +
+    'WHERE n.nspname = current_schema() AND lower(c.relname) = lower(''%s'') ' +
     '  AND a.attnum > 0 AND NOT a.attisdropped ' +
     'ORDER BY a.attnum',
     [SafeTbl]
@@ -1732,7 +1740,7 @@ begin
     'JOIN pg_class idx_cls ON idx_cls.oid = idx.indexrelid ' +
     'LEFT JOIN LATERAL unnest(idx.indkey) WITH ORDINALITY AS ord(attnum, pos) ON true ' +
     'LEFT JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = ord.attnum AND ord.attnum > 0 ' +
-    'WHERE n.nspname = ''public'' AND lower(tbl.relname) = lower(''%s'') ' +
+    'WHERE n.nspname = current_schema() AND lower(tbl.relname) = lower(''%s'') ' +
     'GROUP BY idx_cls.relname, idx.indexrelid, idx.indisunique, idx.indisprimary, idx.indisvalid ' +
     'ORDER BY idx_cls.relname',
     [SafeTbl]
@@ -1772,7 +1780,7 @@ begin
       'JOIN pg_class vc ON vc.oid = rw.ev_class ' +
       'JOIN pg_class tbl ON tbl.oid = d.refobjid ' +
       'JOIN pg_namespace n ON n.oid = tbl.relnamespace ' +
-      'WHERE n.nspname = ''public'' AND lower(tbl.relname) = lower(''%s'') AND vc.oid <> tbl.oid ' +
+      'WHERE n.nspname = current_schema() AND lower(tbl.relname) = lower(''%s'') AND vc.oid <> tbl.oid ' +
       'ORDER BY 1',
       [SafeTbl]
     ));
@@ -1799,7 +1807,7 @@ begin
       'JOIN pg_class child_tbl ON child_tbl.oid = con.conrelid ' +
       'JOIN pg_class parent_tbl ON parent_tbl.oid = con.confrelid ' +
       'JOIN pg_namespace n ON n.oid = parent_tbl.relnamespace ' +
-      'WHERE con.contype = ''f'' AND n.nspname = ''public'' AND lower(parent_tbl.relname) = lower(''%s'') ' +
+      'WHERE con.contype = ''f'' AND n.nspname = current_schema() AND lower(parent_tbl.relname) = lower(''%s'') ' +
       'ORDER BY 1, 2',
       [SafeTbl]
     ));
@@ -1831,7 +1839,7 @@ begin
       'JOIN pg_class tbl ON tbl.oid = tg.tgrelid ' +
       'JOIN pg_namespace n ON n.oid = tbl.relnamespace ' +
       'LEFT JOIN pg_proc p ON p.oid = tg.tgfoid ' +
-      'WHERE NOT tg.tgisinternal AND n.nspname = ''public'' AND lower(tbl.relname) = lower(''%s'') ' +
+      'WHERE NOT tg.tgisinternal AND n.nspname = current_schema() AND lower(tbl.relname) = lower(''%s'') ' +
       'ORDER BY tg.tgname',
       [SafeTbl]
     ));
@@ -1900,7 +1908,7 @@ begin
       'JOIN pg_class child_tbl ON child_tbl.oid = con.conrelid ' +
       'JOIN pg_class parent_tbl ON parent_tbl.oid = con.confrelid ' +
       'JOIN pg_namespace n ON n.oid = child_tbl.relnamespace ' +
-      'WHERE con.contype = ''f'' AND n.nspname = ''public'' AND lower(child_tbl.relname) = lower(''%s'') ' +
+      'WHERE con.contype = ''f'' AND n.nspname = current_schema() AND lower(child_tbl.relname) = lower(''%s'') ' +
       'ORDER BY 1, 2',
       [SafeTbl]
     ));
@@ -1927,7 +1935,7 @@ begin
       'JOIN pg_class seq ON seq.oid = d.objid AND seq.relkind = ''S'' ' +
       'JOIN pg_class tbl ON tbl.oid = d.refobjid ' +
       'JOIN pg_namespace n ON n.oid = tbl.relnamespace ' +
-      'WHERE n.nspname = ''public'' AND lower(tbl.relname) = lower(''%s'') ' +
+      'WHERE n.nspname = current_schema() AND lower(tbl.relname) = lower(''%s'') ' +
       'ORDER BY 1',
       [SafeTbl]
     ));
@@ -1972,7 +1980,7 @@ begin
       'JOIN pg_class c ON c.oid = con.conrelid ' +
       'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
       'LEFT JOIN pg_class ref_tbl ON ref_tbl.oid = con.confrelid ' +
-      'WHERE n.nspname = ''public'' AND lower(c.relname) = lower(''%s'') ' +
+      'WHERE n.nspname = current_schema() AND lower(c.relname) = lower(''%s'') ' +
       'ORDER BY con.contype, con.conname',
       [SafeTbl]
     ));
@@ -2189,7 +2197,7 @@ begin
       'JOIN pg_class tbl ON tbl.oid = d.refobjid ' +
       'JOIN pg_namespace n ON n.oid = tbl.relnamespace ' +
       'JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = d.refobjsubid ' +
-      'WHERE n.nspname = ''public'' AND lower(tbl.relname) = lower(''%s'') ' +
+      'WHERE n.nspname = current_schema() AND lower(tbl.relname) = lower(''%s'') ' +
       '  AND lower(att.attname) = lower(''%s'') AND vc.oid <> tbl.oid ' +
       'ORDER BY 1',
       [SafeTbl, SafeCol]
@@ -2216,7 +2224,7 @@ begin
       'JOIN pg_namespace n ON n.oid = tbl.relnamespace ' +
       'JOIN pg_class idx_cls ON idx_cls.oid = idx.indexrelid ' +
       'JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = ANY(idx.indkey) ' +
-      'WHERE n.nspname = ''public'' AND lower(tbl.relname) = lower(''%s'') ' +
+      'WHERE n.nspname = current_schema() AND lower(tbl.relname) = lower(''%s'') ' +
       '  AND lower(att.attname) = lower(''%s'') ' +
       'ORDER BY 1',
       [SafeTbl, SafeCol]
@@ -2243,7 +2251,7 @@ begin
       'JOIN pg_class child_tbl ON child_tbl.oid = con.conrelid ' +
       'JOIN pg_namespace n ON n.oid = parent_tbl.relnamespace ' +
       'JOIN pg_attribute att ON att.attrelid = parent_tbl.oid AND att.attnum = ANY(con.confkey) ' +
-      'WHERE con.contype = ''f'' AND n.nspname = ''public'' ' +
+      'WHERE con.contype = ''f'' AND n.nspname = current_schema() ' +
       '  AND lower(parent_tbl.relname) = lower(''%s'') AND lower(att.attname) = lower(''%s'') ' +
       'ORDER BY 1',
       [SafeTbl, SafeCol]
@@ -2267,7 +2275,7 @@ begin
       'JOIN pg_class parent_tbl ON parent_tbl.oid = con.confrelid ' +
       'JOIN pg_namespace n ON n.oid = child_tbl.relnamespace ' +
       'JOIN pg_attribute att ON att.attrelid = child_tbl.oid AND att.attnum = ANY(con.conkey) ' +
-      'WHERE con.contype = ''f'' AND n.nspname = ''public'' ' +
+      'WHERE con.contype = ''f'' AND n.nspname = current_schema() ' +
       '  AND lower(child_tbl.relname) = lower(''%s'') AND lower(att.attname) = lower(''%s'') ' +
       'ORDER BY 1',
       [SafeTbl, SafeCol]
@@ -2290,7 +2298,7 @@ begin
       'JOIN pg_class tbl ON tbl.oid = tg.tgrelid ' +
       'JOIN pg_namespace n ON n.oid = tbl.relnamespace ' +
       'JOIN pg_attribute att ON att.attrelid = tbl.oid AND att.attnum = ANY(tg.tgattr) ' +
-      'WHERE NOT tg.tgisinternal AND n.nspname = ''public'' ' +
+      'WHERE NOT tg.tgisinternal AND n.nspname = current_schema() ' +
       '  AND lower(tbl.relname) = lower(''%s'') AND lower(att.attname) = lower(''%s'') ' +
       'ORDER BY 1',
       [SafeTbl, SafeCol]
@@ -2312,7 +2320,7 @@ begin
       'JOIN pg_class c ON c.oid = a.attrelid ' +
       'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
       'JOIN pg_type t ON t.oid = a.atttypid ' +
-      'WHERE n.nspname = ''public'' AND lower(c.relname) = lower(''%s'') ' +
+      'WHERE n.nspname = current_schema() AND lower(c.relname) = lower(''%s'') ' +
       '  AND lower(a.attname) = lower(''%s'') AND t.typtype = ''d''',
       [SafeTbl, SafeCol]
     ));
@@ -2375,6 +2383,179 @@ begin
   end;
 end;
 
+procedure TManageTableStructureUseCase.LoadMariaDbStructure(
+  const ASession: IDatabaseSession;
+  const ATableName: string;
+  const AStructure: TTableStructure
+);
+var
+  SafeTbl, CType: string;
+  Res: TQueryResult;
+  I, K: Integer;
+  Row: TQueryRow;
+  Col: TTableColumnInfo;
+  IdxInfo: TTableIndexInfo;
+  FkInfo: TTableForeignKeyInfo;
+  UqInfo: TTableUniqueConstraintInfo;
+  TrigInfo: TTableTriggerInfo;
+begin
+  SafeTbl := StringReplace(ATableName, '''', '''''', [rfReplaceAll]);
+
+  { 1. Colunas }
+  Res := ExecuteQuery(ASession, Format(
+    'SELECT ordinal_position, column_name, column_type, '''', COALESCE(column_default, ''''), ' +
+    '  CASE WHEN is_nullable = ''NO'' THEN 1 ELSE 0 END, ' +
+    '  CASE WHEN column_key = ''PRI'' THEN 1 ELSE 0 END, ' +
+    '  COALESCE(generation_expression, ''''), ' +
+    '  COALESCE(column_comment, '''') ' +
+    'FROM information_schema.columns ' +
+    'WHERE table_schema = DATABASE() AND LOWER(table_name) = LOWER(''%s'') ' +
+    'ORDER BY ordinal_position',
+    [SafeTbl]
+  ));
+  try
+    if (Res <> nil) and Res.HasResultSet then
+    begin
+      SetLength(AStructure.Columns, Res.RowCount);
+      for I := 0 to Res.RowCount - 1 do
+      begin
+        Row := Res.GetRow(I);
+        Col.Position := StrToIntDef(Trim(Row[0].AsText), I + 1);
+        Col.ColumnName := Trim(Row[1].AsText);
+        Col.DataType := Trim(Row[2].AsText);
+        Col.DomainName := '';
+        Col.DefaultValue := Trim(Row[4].AsText);
+        Col.NotNull := Trim(Row[5].AsText) = '1';
+        Col.IsPrimaryKey := Trim(Row[6].AsText) = '1';
+        Col.ComputedSource := Trim(Row[7].AsText);
+        Col.IsComputed := Col.ComputedSource <> '';
+        Col.Description := Trim(Row[8].AsText);
+        AStructure.Columns[I] := Col;
+      end;
+    end;
+  finally
+    Res.Free;
+  end;
+
+  { 2. Índices }
+  Res := ExecuteQuery(ASession, Format(
+    'SELECT index_name, ' +
+    '  COALESCE(GROUP_CONCAT(column_name ORDER BY seq_in_index SEPARATOR '', ''), ''''), ' +
+    '  MAX(CASE WHEN non_unique = 0 THEN 1 ELSE 0 END), ' +
+    '  MAX(CASE WHEN index_name = ''PRIMARY'' THEN 1 ELSE 0 END) ' +
+    'FROM information_schema.statistics ' +
+    'WHERE table_schema = DATABASE() AND LOWER(table_name) = LOWER(''%s'') ' +
+    'GROUP BY index_name ' +
+    'ORDER BY index_name',
+    [SafeTbl]
+  ));
+  try
+    if (Res <> nil) and Res.HasResultSet then
+    begin
+      SetLength(AStructure.Indexes, Res.RowCount);
+      for I := 0 to Res.RowCount - 1 do
+      begin
+        Row := Res.GetRow(I);
+        IdxInfo.IndexName := Trim(Row[0].AsText);
+        IdxInfo.Columns := Trim(Row[1].AsText);
+        IdxInfo.ExpressionSource := '';
+        IdxInfo.IsUnique := Trim(Row[2].AsText) = '1';
+        IdxInfo.IsPrimaryKey := Trim(Row[3].AsText) = '1';
+        IdxInfo.IsActive := True;
+        IdxInfo.ConstraintName := IdxInfo.IndexName;
+        IdxInfo.IsForeignKey := False;
+        IdxInfo.IsDescending := False;
+        AStructure.Indexes[I] := IdxInfo;
+      end;
+    end;
+  finally
+    Res.Free;
+  end;
+
+  { 3. Constraints (PK / FK / Unique) }
+  Res := ExecuteQuery(ASession, Format(
+    'SELECT tc.constraint_name, tc.constraint_type, ' +
+    '  COALESCE(GROUP_CONCAT(kcu.column_name ORDER BY kcu.ordinal_position SEPARATOR '', ''), ''''), ' +
+    '  COALESCE(MAX(kcu.referenced_table_name), ''''), ' +
+    '  COALESCE(GROUP_CONCAT(kcu.referenced_column_name ORDER BY kcu.ordinal_position SEPARATOR '', ''), '''') ' +
+    'FROM information_schema.table_constraints tc ' +
+    'LEFT JOIN information_schema.key_column_usage kcu ' +
+    '  ON kcu.constraint_schema = tc.constraint_schema ' +
+    ' AND kcu.table_name = tc.table_name ' +
+    ' AND kcu.constraint_name = tc.constraint_name ' +
+    'WHERE tc.table_schema = DATABASE() AND LOWER(tc.table_name) = LOWER(''%s'') ' +
+    'GROUP BY tc.constraint_name, tc.constraint_type ' +
+    'ORDER BY tc.constraint_type, tc.constraint_name',
+    [SafeTbl]
+  ));
+  try
+    if (Res <> nil) and Res.HasResultSet then
+    begin
+      for I := 0 to Res.RowCount - 1 do
+      begin
+        Row := Res.GetRow(I);
+        CType := UpperCase(Trim(Row[1].AsText));
+        if CType = 'PRIMARY KEY' then
+        begin
+          AStructure.PrimaryKeyName := Trim(Row[0].AsText);
+          AStructure.PrimaryKeyColumns := Trim(Row[2].AsText);
+        end
+        else if CType = 'FOREIGN KEY' then
+        begin
+          FkInfo := Default(TTableForeignKeyInfo);
+          FkInfo.ConstraintName := Trim(Row[0].AsText);
+          FkInfo.Columns := Trim(Row[2].AsText);
+          FkInfo.RefTable := Trim(Row[3].AsText);
+          FkInfo.RefColumns := Trim(Row[4].AsText);
+          K := Length(AStructure.ForeignKeys);
+          SetLength(AStructure.ForeignKeys, K + 1);
+          AStructure.ForeignKeys[K] := FkInfo;
+        end
+        else if CType = 'UNIQUE' then
+        begin
+          UqInfo := Default(TTableUniqueConstraintInfo);
+          UqInfo.ConstraintName := Trim(Row[0].AsText);
+          UqInfo.Columns := Trim(Row[2].AsText);
+          K := Length(AStructure.UniqueConstraints);
+          SetLength(AStructure.UniqueConstraints, K + 1);
+          AStructure.UniqueConstraints[K] := UqInfo;
+        end;
+      end;
+    end;
+  finally
+    Res.Free;
+  end;
+
+  { 4. Triggers }
+  Res := ExecuteQuery(ASession, Format(
+    'SELECT trigger_name, CONCAT(action_timing, '' '', event_manipulation), action_statement ' +
+    'FROM information_schema.triggers ' +
+    'WHERE trigger_schema = DATABASE() AND LOWER(event_object_table) = LOWER(''%s'') ' +
+    'ORDER BY trigger_name',
+    [SafeTbl]
+  ));
+  try
+    if (Res <> nil) and Res.HasResultSet then
+    begin
+      SetLength(AStructure.Triggers, Res.RowCount);
+      for I := 0 to Res.RowCount - 1 do
+      begin
+        Row := Res.GetRow(I);
+        TrigInfo := Default(TTableTriggerInfo);
+        TrigInfo.TriggerName := Trim(Row[0].AsText);
+        TrigInfo.Timing := Trim(Row[1].AsText);
+        TrigInfo.Events := '';
+        TrigInfo.IsActive := True;
+        TrigInfo.SourceBody := Trim(Row[2].AsText);
+        TrigInfo.FullDDL := TrigInfo.SourceBody;
+        AStructure.Triggers[I] := TrigInfo;
+      end;
+    end;
+  finally
+    Res.Free;
+  end;
+end;
+
 function TManageTableStructureUseCase.LoadTableStructure(
   const AProfile: TConnectionProfile;
   const ATableName: string
@@ -2394,6 +2575,8 @@ begin
     Session.Connect;
     if AProfile.DatabaseType = dtPostgreSQL then
       LoadPostgresStructure(Session, Result.TableName, Result)
+    else if AProfile.DatabaseType = dtMariaDB then
+      LoadMariaDbStructure(Session, Result.TableName, Result)
     else
       LoadFirebirdStructure(Session, Result.TableName, Result);
   finally
@@ -2776,9 +2959,9 @@ begin
   while (CleanWhere <> '') and (CleanWhere[Length(CleanWhere)] = ';') do
     CleanWhere := TrimRight(Copy(CleanWhere, 1, Length(CleanWhere) - 1));
 
-  if AProfile.DatabaseType = dtPostgreSQL then
+  if AProfile.DatabaseType in [dtPostgreSQL, dtMariaDB] then
   begin
-    SQL := 'SELECT * FROM ' + QuoteDbIdent(dtPostgreSQL, ATableName);
+    SQL := 'SELECT * FROM ' + QuoteDbIdent(AProfile.DatabaseType, ATableName);
     if CleanWhere <> '' then
       SQL := SQL + ' WHERE ' + CleanWhere;
     if ALimitRows > 0 then

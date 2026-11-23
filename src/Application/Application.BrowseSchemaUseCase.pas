@@ -40,15 +40,39 @@ begin
   begin
     case AKind of
       sokTables:
-        Result := 'SELECT table_name FROM information_schema.tables WHERE table_schema = ''public'' AND table_type = ''BASE TABLE'' ORDER BY 1';
+        Result :=
+          'SELECT c.relname, pg_total_relation_size(c.oid) ' +
+          'FROM pg_class c ' +
+          'JOIN pg_namespace n ON n.oid = c.relnamespace ' +
+          'WHERE n.nspname = current_schema() AND c.relkind IN (''r'', ''p'') ' +
+          'ORDER BY 1';
       sokViews:
-        Result := 'SELECT table_name FROM information_schema.views WHERE table_schema = ''public'' ORDER BY 1';
+        Result := 'SELECT table_name FROM information_schema.views WHERE table_schema = current_schema() ORDER BY 1';
       sokProcedures:
-        Result := 'SELECT routine_name FROM information_schema.routines WHERE routine_schema = ''public'' ORDER BY 1';
+        Result := 'SELECT routine_name FROM information_schema.routines WHERE routine_schema = current_schema() ORDER BY 1';
       sokTriggers:
-        Result := 'SELECT DISTINCT trigger_name FROM information_schema.triggers WHERE trigger_schema = ''public'' ORDER BY 1';
+        Result := 'SELECT DISTINCT trigger_name FROM information_schema.triggers WHERE trigger_schema = current_schema() ORDER BY 1';
       sokGenerators:
-        Result := 'SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = ''public'' ORDER BY 1';
+        Result := 'SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = current_schema() ORDER BY 1';
+    end;
+  end
+  else if ADbType = dtMariaDB then
+  begin
+    case AKind of
+      sokTables:
+        Result :=
+          'SELECT table_name, COALESCE(data_length, 0) + COALESCE(index_length, 0) ' +
+          'FROM information_schema.tables ' +
+          'WHERE table_schema = DATABASE() AND table_type = ''BASE TABLE'' ' +
+          'ORDER BY 1';
+      sokViews:
+        Result := 'SELECT table_name FROM information_schema.views WHERE table_schema = DATABASE() ORDER BY 1';
+      sokProcedures:
+        Result := 'SELECT routine_name FROM information_schema.routines WHERE routine_schema = DATABASE() ORDER BY 1';
+      sokTriggers:
+        Result := 'SELECT trigger_name FROM information_schema.triggers WHERE trigger_schema = DATABASE() ORDER BY 1';
+      sokGenerators:
+        Result := 'SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_type = ''SEQUENCE'' ORDER BY 1';
     end;
   end
   else
@@ -78,6 +102,8 @@ var
   SQL, ObjName: string;
   Res: TQueryResult;
   I: Integer;
+  SizeBytes: Int64;
+  SizePtr: Pointer;
 begin
   Result := TStringList.Create;
   if AProfile = nil then
@@ -102,7 +128,13 @@ begin
         begin
           ObjName := Trim(Res.GetRow(I)[0].AsText);
           if ObjName <> '' then
-            Result.Add(ObjName);
+          begin
+            SizePtr := nil;
+            if (Res.ColumnCount >= 2) and (not Res.GetRow(I)[1].IsNull) and
+               TryStrToInt64(Trim(Res.GetRow(I)[1].AsText), SizeBytes) and (SizeBytes >= 0) then
+              SizePtr := Pointer(PtrInt(SizeBytes + 1));
+            Result.AddObject(ObjName, TObject(SizePtr));
+          end;
         end;
       end;
     finally
