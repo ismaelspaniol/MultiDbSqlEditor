@@ -215,6 +215,11 @@ type
     FDataDmlHelper: TGridDmlHelper;
     FLastDataResult: TQueryResult;
     FDataLoaded: Boolean;
+    lbWhereSuggest: TListBox;
+    btnExportDataCsv: TButton;
+    btnImportData: TButton;
+    btnDropTable: TButton;
+    FApplyingWhereSuggest: Boolean;
     FTriggerCompletion: TSqlCompletionController;
     FCurrentTriggerName: string;
     FTriggerIsNew: Boolean;
@@ -273,6 +278,15 @@ type
     function BuildDataSelectSQL: string;
     procedure LoadTableDataGrid;
     procedure HandleDataGridExportedCsv(Sender: TObject; const AFileName: string);
+    procedure edtDataWhereChange(Sender: TObject);
+    procedure edtDataWhereExit(Sender: TObject);
+    procedure lbWhereSuggestClick(Sender: TObject);
+    procedure lbWhereSuggestKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure btnExportDataCsvClick(Sender: TObject);
+    procedure btnImportDataClick(Sender: TObject);
+    procedure btnDropTableClick(Sender: TObject);
+    procedure UpdateWhereSuggestions(const AForceShowAll: Boolean = False);
+    procedure AcceptWhereSuggestion;
     function EnsureDataSessionConnected: Boolean;
     procedure DisconnectDataSession;
     procedure UpdateDataTransactionUI;
@@ -300,6 +314,9 @@ type
   end;
 
 implementation
+
+uses
+  Presentation.DataImportForm;
 
 {$R *.lfm}
 
@@ -728,6 +745,60 @@ begin
   FDataGrid.SetEditable(False);
   FDataGrid.SetResult(nil, True, False);
   UpdateDataTransactionUI;
+
+  if btnExportDataCsv = nil then
+  begin
+    btnExportDataCsv := TButton.Create(Self);
+    btnExportDataCsv.Parent := pnlDataBar;
+    btnExportDataCsv.Caption := 'Exportar CSV';
+    btnExportDataCsv.AutoSize := True;
+    btnExportDataCsv.Constraints.MinHeight := 26;
+    btnExportDataCsv.BorderSpacing.Right := 6;
+    btnExportDataCsv.Enabled := False;
+    btnExportDataCsv.OnClick := @btnExportDataCsvClick;
+  end;
+
+  if btnImportData = nil then
+  begin
+    btnImportData := TButton.Create(Self);
+    btnImportData.Parent := pnlDataBar;
+    btnImportData.Caption := 'Importar Dados...';
+    btnImportData.AutoSize := True;
+    btnImportData.Constraints.MinHeight := 26;
+    btnImportData.BorderSpacing.Right := 6;
+    btnImportData.OnClick := @btnImportDataClick;
+  end;
+
+  if btnDropTable = nil then
+  begin
+    btnDropTable := TButton.Create(Self);
+    btnDropTable.Parent := pnlHeader;
+    btnDropTable.Align := alRight;
+    btnDropTable.AutoSize := True;
+    btnDropTable.Constraints.MinHeight := 28;
+    btnDropTable.Constraints.MinWidth := 115;
+    btnDropTable.BorderSpacing.Left := 8;
+    btnDropTable.Left := btnOpenInSql.Left + btnOpenInSql.Width + 8;
+    btnDropTable.Caption := 'Excluir Tabela...';
+    btnDropTable.OnClick := @btnDropTableClick;
+  end;
+  btnDropTable.Enabled := Trim(FTableName) <> '';
+  pgTable.Enabled := True;
+  btnRefresh.Enabled := True;
+  btnViewData.Enabled := True;
+
+  if lbWhereSuggest = nil then
+  begin
+    lbWhereSuggest := TListBox.Create(Self);
+    lbWhereSuggest.Parent := tsData;
+    lbWhereSuggest.Visible := False;
+    lbWhereSuggest.Width := 280;
+    lbWhereSuggest.Height := 150;
+    lbWhereSuggest.OnClick := @lbWhereSuggestClick;
+    lbWhereSuggest.OnKeyDown := @lbWhereSuggestKeyDown;
+  end;
+  edtDataWhere.OnChange := @edtDataWhereChange;
+  edtDataWhere.OnExit := @edtDataWhereExit;
 
   if FTriggerCompletion = nil then
     FTriggerCompletion := TSqlCompletionController.Create(
@@ -2367,6 +2438,8 @@ begin
           FDataGrid.SetResult(FLastDataResult, True, True);
           FDataGrid.SetEditable(FLastDataResult.HasResultSet and (FTableName <> ''), FTableName);
         end;
+        if btnExportDataCsv <> nil then
+          btnExportDataCsv.Enabled := (FDataGrid <> nil) and FDataGrid.CanExportCsv;
         if FLastDataResult.SystemMemoryLow then
         begin
           lblStatus.Caption := Format('Proteção RAM do SO em "%s": %d registro(s) mantidos.', [
@@ -2999,11 +3072,260 @@ end;
 
 procedure TTableEditorFrame.edtDataWhereKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
 begin
+  if (Key = VK_SPACE) and (ssCtrl in Shift) then
+  begin
+    Key := 0;
+    UpdateWhereSuggestions(True);
+    Exit;
+  end;
+
+  if (lbWhereSuggest <> nil) and lbWhereSuggest.Visible then
+  begin
+    if Key = VK_DOWN then
+    begin
+      Key := 0;
+      if lbWhereSuggest.Items.Count > 0 then
+      begin
+        if lbWhereSuggest.ItemIndex < lbWhereSuggest.Items.Count - 1 then
+          lbWhereSuggest.ItemIndex := lbWhereSuggest.ItemIndex + 1
+        else
+          lbWhereSuggest.ItemIndex := 0;
+      end;
+      Exit;
+    end
+    else if Key = VK_UP then
+    begin
+      Key := 0;
+      if lbWhereSuggest.Items.Count > 0 then
+      begin
+        if lbWhereSuggest.ItemIndex > 0 then
+          lbWhereSuggest.ItemIndex := lbWhereSuggest.ItemIndex - 1
+        else
+          lbWhereSuggest.ItemIndex := lbWhereSuggest.Items.Count - 1;
+      end;
+      Exit;
+    end
+    else if (Key = VK_RETURN) or (Key = VK_TAB) then
+    begin
+      Key := 0;
+      AcceptWhereSuggestion;
+      Exit;
+    end
+    else if Key = VK_ESCAPE then
+    begin
+      Key := 0;
+      lbWhereSuggest.Visible := False;
+      Exit;
+    end;
+  end;
+
   if (Key = VK_RETURN) and (Shift = []) then
   begin
     Key := 0;
     LoadTableDataGrid;
   end;
+end;
+
+procedure TTableEditorFrame.edtDataWhereChange(Sender: TObject);
+begin
+  if not FApplyingWhereSuggest then
+    UpdateWhereSuggestions(False);
+end;
+
+procedure TTableEditorFrame.edtDataWhereExit(Sender: TObject);
+begin
+  if (lbWhereSuggest <> nil) and (not lbWhereSuggest.Focused) then
+    lbWhereSuggest.Visible := False;
+end;
+
+procedure TTableEditorFrame.lbWhereSuggestClick(Sender: TObject);
+begin
+  AcceptWhereSuggestion;
+end;
+
+procedure TTableEditorFrame.lbWhereSuggestKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if (Key = VK_RETURN) or (Key = VK_TAB) then
+  begin
+    Key := 0;
+    AcceptWhereSuggestion;
+  end
+  else if Key = VK_ESCAPE then
+  begin
+    Key := 0;
+    lbWhereSuggest.Visible := False;
+    if edtDataWhere.CanFocus then
+      edtDataWhere.SetFocus;
+  end;
+end;
+
+procedure TTableEditorFrame.btnExportDataCsvClick(Sender: TObject);
+begin
+  if (FDataGrid <> nil) and FDataGrid.CanExportCsv then
+    FDataGrid.ExportToCsv;
+end;
+
+procedure TTableEditorFrame.btnImportDataClick(Sender: TObject);
+begin
+  if (FUseCase <> nil) and TDataImportForm.Execute(FUseCase.Factory, nil, FProfile, FTableName) then
+    LoadTableDataGrid;
+end;
+
+procedure TTableEditorFrame.btnDropTableClick(Sender: TObject);
+var
+  Msg: string;
+begin
+  if (FUseCase = nil) or (FProfile = nil) or (Trim(FTableName) = '') then
+    Exit;
+
+  if MessageDlg(
+       'Confirmar Exclusão da Tabela (1/2)',
+       Format('Deseja excluir permanentemente a tabela "%s" e TODOS os seus dados do banco "%s"?',
+         [FTableName, FProfile.Name]),
+       mtWarning, [mbYes, mbNo], 0
+     ) <> mrYes then
+    Exit;
+
+  if MessageDlg(
+       'Confirmação Final — Exclusão Irreversível (2/2)',
+       Format('ATENÇÃO: Esta operação NÃO pode ser desfeita (DROP TABLE %s).' + LineEnding + LineEnding +
+         'Confirma em definitivo a EXCLUSÃO da tabela "%s"?', [FTableName, FTableName]),
+       mtWarning, [mbYes, mbNo], 0
+     ) <> mrYes then
+    Exit;
+
+  DisconnectDataSession;
+  Screen.Cursor := crHourGlass;
+  try
+    if FUseCase.DropTable(FProfile, FTableName, Msg) then
+    begin
+      lblTableTitle.Caption := Format('Tabela: %s [EXCLUÍDA]', [FTableName]);
+      pgTable.Enabled := False;
+      btnRefresh.Enabled := False;
+      btnViewData.Enabled := False;
+      btnDropTable.Enabled := False;
+      lblStatus.Caption := Msg;
+      if Assigned(FOnStructureChanged) then
+        FOnStructureChanged(ProfileId);
+      MessageDlg('Tabela Excluída', Msg, mtInformation, [mbOK], 0);
+    end
+    else
+      MessageDlg('Erro ao Excluir Tabela', Msg, mtError, [mbOK], 0);
+  finally
+    Screen.Cursor := crDefault;
+  end;
+end;
+
+procedure TTableEditorFrame.UpdateWhereSuggestions(const AForceShowAll: Boolean);
+var
+  Txt, Prefix, PrefixLower, ColName: string;
+  CaretPos, StartIdx, I: Integer;
+  Pt: TPoint;
+  MatchedPrefix, MatchedSub: TStringList;
+begin
+  if (lbWhereSuggest = nil) or (Length(FStructure.Columns) = 0) then
+    Exit;
+
+  Txt := edtDataWhere.Text;
+  CaretPos := edtDataWhere.SelStart;
+  if CaretPos > Length(Txt) then
+    CaretPos := Length(Txt);
+
+  StartIdx := CaretPos;
+  while (StartIdx >= 1) and (Txt[StartIdx] in ['A'..'Z', 'a'..'z', '0'..'9', '_', '$']) do
+    Dec(StartIdx);
+  Prefix := Copy(Txt, StartIdx + 1, CaretPos - StartIdx);
+  PrefixLower := LowerCase(Prefix);
+
+  if (PrefixLower = '') and (not AForceShowAll) then
+  begin
+    lbWhereSuggest.Visible := False;
+    Exit;
+  end;
+
+  MatchedPrefix := TStringList.Create;
+  MatchedSub := TStringList.Create;
+  try
+    for I := 0 to High(FStructure.Columns) do
+    begin
+      ColName := FStructure.Columns[I].ColumnName;
+      if PrefixLower = '' then
+        MatchedPrefix.AddObject(Format('%s  (%s)', [ColName, FStructure.Columns[I].DataType]), TObject(PtrInt(I)))
+      else if Pos(PrefixLower, LowerCase(ColName)) = 1 then
+        MatchedPrefix.AddObject(Format('%s  (%s)', [ColName, FStructure.Columns[I].DataType]), TObject(PtrInt(I)))
+      else if Pos(PrefixLower, LowerCase(ColName)) > 1 then
+        MatchedSub.AddObject(Format('%s  (%s)', [ColName, FStructure.Columns[I].DataType]), TObject(PtrInt(I)));
+    end;
+
+    lbWhereSuggest.Items.BeginUpdate;
+    try
+      lbWhereSuggest.Items.Clear;
+      for I := 0 to MatchedPrefix.Count - 1 do
+        lbWhereSuggest.Items.AddObject(MatchedPrefix[I], MatchedPrefix.Objects[I]);
+      for I := 0 to MatchedSub.Count - 1 do
+        lbWhereSuggest.Items.AddObject(MatchedSub[I], MatchedSub.Objects[I]);
+    finally
+      lbWhereSuggest.Items.EndUpdate;
+    end;
+  finally
+    MatchedSub.Free;
+    MatchedPrefix.Free;
+  end;
+
+  if lbWhereSuggest.Items.Count = 0 then
+  begin
+    lbWhereSuggest.Visible := False;
+    Exit;
+  end;
+
+  lbWhereSuggest.ItemIndex := 0;
+  Pt := tsData.ScreenToClient(edtDataWhere.ClientToScreen(Point(0, edtDataWhere.Height)));
+  lbWhereSuggest.Left := Pt.X;
+  lbWhereSuggest.Top := Pt.Y;
+  lbWhereSuggest.Width := Max(260, edtDataWhere.Width);
+  lbWhereSuggest.Height := Min(160, Max(44, lbWhereSuggest.Items.Count * 18 + 8));
+  lbWhereSuggest.Visible := True;
+  lbWhereSuggest.BringToFront;
+end;
+
+procedure TTableEditorFrame.AcceptWhereSuggestion;
+var
+  ColIdx, CaretPos, StartIdx: Integer;
+  Txt, ColName, NewTxt: string;
+begin
+  if (lbWhereSuggest = nil) or (not lbWhereSuggest.Visible) or (lbWhereSuggest.ItemIndex < 0) then
+    Exit;
+
+  ColIdx := Integer(PtrInt(lbWhereSuggest.Items.Objects[lbWhereSuggest.ItemIndex]));
+  if (ColIdx < 0) or (ColIdx > High(FStructure.Columns)) then
+  begin
+    lbWhereSuggest.Visible := False;
+    Exit;
+  end;
+
+  ColName := FStructure.Columns[ColIdx].ColumnName;
+  Txt := edtDataWhere.Text;
+  CaretPos := edtDataWhere.SelStart;
+  if CaretPos > Length(Txt) then
+    CaretPos := Length(Txt);
+
+  StartIdx := CaretPos;
+  while (StartIdx >= 1) and (Txt[StartIdx] in ['A'..'Z', 'a'..'z', '0'..'9', '_', '$']) do
+    Dec(StartIdx);
+
+  NewTxt := Copy(Txt, 1, StartIdx) + ColName + Copy(Txt, CaretPos + 1, MaxInt);
+  FApplyingWhereSuggest := True;
+  try
+    edtDataWhere.Text := NewTxt;
+    edtDataWhere.SelStart := StartIdx + Length(ColName);
+    edtDataWhere.SelLength := 0;
+  finally
+    FApplyingWhereSuggest := False;
+  end;
+
+  lbWhereSuggest.Visible := False;
+  if edtDataWhere.CanFocus then
+    edtDataWhere.SetFocus;
 end;
 
 procedure TTableEditorFrame.btnOpenDataInSqlClick(Sender: TObject);

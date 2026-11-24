@@ -25,11 +25,16 @@ type
     FSchema: string;
     FClientLibraryPath: string;
     FFirebirdVersion: TFirebirdVersion;
+    FEnvironmentKind: string;
   public
     constructor Create;
     function Clone: TConnectionProfile;
     procedure Validate;
+    function EffectiveDatabase: string;
     function EffectiveSchema: string;
+    function IsProduction: Boolean;
+    function EnvironmentBannerColor: Integer;
+    function EnvironmentTextColor: Integer;
     { Faz o parse de strings como "127.0.0.1/3055:D:\caminho\banco.fdb" ou "host:banco.fdb" }
     class function TryParseFirebirdString(
       const AInput: string;
@@ -54,6 +59,7 @@ type
     { Caminho opcional para fbclient.dll ou libpq.dll }
     property ClientLibraryPath: string read FClientLibraryPath write FClientLibraryPath;
     property FirebirdVersion: TFirebirdVersion read FFirebirdVersion write FFirebirdVersion;
+    property EnvironmentKind: string read FEnvironmentKind write FEnvironmentKind;
   end;
 
 implementation
@@ -67,6 +73,43 @@ begin
   FCharset := 'UTF8';
   FSchema := 'public';
   FFirebirdVersion := fvAuto;
+  FEnvironmentKind := 'Padrao';
+end;
+
+function TConnectionProfile.IsProduction: Boolean;
+begin
+  Result := SameText(Trim(FEnvironmentKind), 'Producao');
+end;
+
+function TConnectionProfile.EnvironmentBannerColor: Integer;
+begin
+  if SameText(Trim(FEnvironmentKind), 'Desenvolvimento') then
+    Result := $00DCF5DC
+  else if SameText(Trim(FEnvironmentKind), 'Homologacao') then
+    Result := $00CCF2FF
+  else if SameText(Trim(FEnvironmentKind), 'Producao') then
+    Result := $00D6D6FF
+  else
+    Result := 0;
+end;
+
+function TConnectionProfile.EnvironmentTextColor: Integer;
+begin
+  if SameText(Trim(FEnvironmentKind), 'Desenvolvimento') then
+    Result := $001E7E1E
+  else if SameText(Trim(FEnvironmentKind), 'Homologacao') then
+    Result := $000066B3
+  else if SameText(Trim(FEnvironmentKind), 'Producao') then
+    Result := $001F1FC8
+  else
+    Result := 0;
+end;
+
+function TConnectionProfile.EffectiveDatabase: string;
+begin
+  Result := Trim(FDatabase);
+  if (Result = '') and (FDatabaseType = dtPostgreSQL) then
+    Result := 'postgres';
 end;
 
 function TConnectionProfile.EffectiveSchema: string;
@@ -92,13 +135,14 @@ begin
   Result.Schema := FSchema;
   Result.ClientLibraryPath := FClientLibraryPath;
   Result.FirebirdVersion := FFirebirdVersion;
+  Result.EnvironmentKind := FEnvironmentKind;
 end;
 
 procedure TConnectionProfile.Validate;
 begin
   if Trim(FName) = '' then
     raise Exception.Create('O nome da conexão é obrigatório.');
-  if Trim(FDatabase) = '' then
+  if (FDatabaseType <> dtPostgreSQL) and (Trim(FDatabase) = '') then
     raise Exception.Create('O caminho ou nome do banco de dados é obrigatório.');
   if Trim(FUsername) = '' then
     raise Exception.Create('O usuário é obrigatório.');

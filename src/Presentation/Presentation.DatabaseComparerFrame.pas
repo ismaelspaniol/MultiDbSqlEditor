@@ -29,6 +29,7 @@ uses
 
 type
   TOpenSqlInNewTabEvent = procedure(const AProfileId, ATitle, ASqlText: string) of object;
+  TDDLLineDiffKind = (dlkSame, dlkAdded, dlkRemoved, dlkChanged);
 
   { Frame visual do Database Comparer (comparação entre 2 bases + script de sincronização) }
   TDatabaseComparerFrame = class(TFrame)
@@ -103,6 +104,11 @@ type
     FApplyWorker: TApplyCompareScriptWorker;
     FUpdatingToolbarSize: Boolean;
     FOnOpenSqlInNewTab: TOpenSqlInNewTabEvent;
+    FSourceLineDiffs: array of TDDLLineDiffKind;
+    FTargetLineDiffs: array of TDDLLineDiffKind;
+    procedure SynEditDDLSpecialLineColors(Sender: TObject; Line: Integer;
+      var Special: Boolean; var FG, BG: TColor);
+    procedure ComputeDDLDiffHighlights;
     procedure LogMessage(const AMsg: string);
     procedure ConfigureGrid;
     procedure UpdateToolbarLayouts;
@@ -264,6 +270,8 @@ begin
   SynEditScript.Highlighter := SynSQLSyn1;
   SynEditSourceDDL.Highlighter := SynSQLSyn1;
   SynEditTargetDDL.Highlighter := SynSQLSyn1;
+  SynEditSourceDDL.OnSpecialLineColors := @SynEditDDLSpecialLineColors;
+  SynEditTargetDDL.OnSpecialLineColors := @SynEditDDLSpecialLineColors;
 
   ConfigureGrid;
   LoadSettings(Trim(AInitialSourceId) <> '');
@@ -578,16 +586,222 @@ begin
   btnExecuteScript.Enabled := btnCopyScript.Enabled and (SelectedTargetProfile <> nil);
 end;
 
+procedure TDatabaseComparerFrame.SynEditDDLSpecialLineColors(
+  Sender: TObject;
+  Line: Integer;
+  var Special: Boolean;
+  var FG, BG: TColor
+);
+var
+  Idx: Integer;
+  Kind: TDDLLineDiffKind;
+begin
+  Idx := Line - 1;
+  if Idx < 0 then
+    Exit;
+
+  Kind := dlkSame;
+  if Sender = SynEditSourceDDL then
+  begin
+    if Idx <= High(FSourceLineDiffs) then
+      Kind := FSourceLineDiffs[Idx];
+  end
+  else if Sender = SynEditTargetDDL then
+  begin
+    if Idx <= High(FTargetLineDiffs) then
+      Kind := FTargetLineDiffs[Idx];
+  end;
+
+  case Kind of
+    dlkAdded:
+      begin
+        Special := True;
+        BG := RGBToColor(218, 248, 222);
+      end;
+    dlkRemoved:
+      begin
+        Special := True;
+        BG := RGBToColor(255, 224, 224);
+      end;
+    dlkChanged:
+      begin
+        Special := True;
+        BG := RGBToColor(255, 244, 196);
+      end;
+  end;
+end;
+
+procedure TDatabaseComparerFrame.ComputeDDLDiffHighlights;
+var
+  SrcCount, TgtCount, PrefixLen, SuffixLen, MidSrc, MidTgt: Integer;
+  I, J, K, Stride, GapSrcStart, GapTgtStart: Integer;
+  DP: array of Integer;
+  SrcMatched, TgtMatched: array of Boolean;
+  Kind: TDDLLineDiffKind;
+begin
+  SrcCount := SynEditSourceDDL.Lines.Count;
+  TgtCount := SynEditTargetDDL.Lines.Count;
+  SetLength(FSourceLineDiffs, SrcCount);
+  SetLength(FTargetLineDiffs, TgtCount);
+  for I := 0 to SrcCount - 1 do
+    FSourceLineDiffs[I] := dlkSame;
+  for J := 0 to TgtCount - 1 do
+    FTargetLineDiffs[J] := dlkSame;
+
+  if (SrcCount = 0) and (TgtCount = 0) then
+    Exit;
+  if SrcCount = 0 then
+  begin
+    for J := 0 to TgtCount - 1 do
+      FTargetLineDiffs[J] := dlkRemoved;
+    Exit;
+  end;
+  if TgtCount = 0 then
+  begin
+    for I := 0 to SrcCount - 1 do
+      FSourceLineDiffs[I] := dlkAdded;
+    Exit;
+  end;
+
+  PrefixLen := 0;
+  while (PrefixLen < SrcCount) and (PrefixLen < TgtCount) and
+        (TrimRight(SynEditSourceDDL.Lines[PrefixLen]) = TrimRight(SynEditTargetDDL.Lines[PrefixLen])) do
+    Inc(PrefixLen);
+
+  SuffixLen := 0;
+  while (PrefixLen + SuffixLen < SrcCount) and (PrefixLen + SuffixLen < TgtCount) and
+        (TrimRight(SynEditSourceDDL.Lines[SrcCount - 1 - SuffixLen]) =
+         TrimRight(SynEditTargetDDL.Lines[TgtCount - 1 - SuffixLen])) do
+    Inc(SuffixLen);
+
+  MidSrc := SrcCount - PrefixLen - SuffixLen;
+  MidTgt := TgtCount - PrefixLen - SuffixLen;
+  if (MidSrc <= 0) and (MidTgt <= 0) then
+    Exit;
+  if MidSrc <= 0 then
+  begin
+    for J := PrefixLen to PrefixLen + MidTgt - 1 do
+      FTargetLineDiffs[J] := dlkRemoved;
+    Exit;
+  end;
+  if MidTgt <= 0 then
+  begin
+    for I := PrefixLen to PrefixLen + MidSrc - 1 do
+      FSourceLineDiffs[I] := dlkAdded;
+    Exit;
+  end;
+
+  if Int64(MidSrc) * Int64(MidTgt) > 1000000 then
+  begin
+    for I := 0 to MidSrc - 1 do
+      if I < MidTgt then
+        FSourceLineDiffs[PrefixLen + I] := dlkChanged
+      else
+        FSourceLineDiffs[PrefixLen + I] := dlkAdded;
+    for J := 0 to MidTgt - 1 do
+      if J < MidSrc then
+        FTargetLineDiffs[PrefixLen + J] := dlkChanged
+      else
+        FTargetLineDiffs[PrefixLen + J] := dlkRemoved;
+    Exit;
+  end;
+
+  Stride := MidTgt + 1;
+  SetLength(DP, (MidSrc + 1) * Stride);
+  for I := 0 to MidSrc do
+    DP[I * Stride] := 0;
+  for J := 0 to MidTgt do
+    DP[J] := 0;
+
+  for I := 1 to MidSrc do
+    for J := 1 to MidTgt do
+      if TrimRight(SynEditSourceDDL.Lines[PrefixLen + I - 1]) =
+         TrimRight(SynEditTargetDDL.Lines[PrefixLen + J - 1]) then
+        DP[I * Stride + J] := DP[(I - 1) * Stride + (J - 1)] + 1
+      else if DP[(I - 1) * Stride + J] >= DP[I * Stride + (J - 1)] then
+        DP[I * Stride + J] := DP[(I - 1) * Stride + J]
+      else
+        DP[I * Stride + J] := DP[I * Stride + (J - 1)];
+
+  SetLength(SrcMatched, MidSrc);
+  SetLength(TgtMatched, MidTgt);
+  for I := 0 to MidSrc - 1 do
+    SrcMatched[I] := False;
+  for J := 0 to MidTgt - 1 do
+    TgtMatched[J] := False;
+
+  I := MidSrc;
+  J := MidTgt;
+  while (I > 0) and (J > 0) do
+  begin
+    if TrimRight(SynEditSourceDDL.Lines[PrefixLen + I - 1]) =
+       TrimRight(SynEditTargetDDL.Lines[PrefixLen + J - 1]) then
+    begin
+      SrcMatched[I - 1] := True;
+      TgtMatched[J - 1] := True;
+      Dec(I);
+      Dec(J);
+    end
+    else if DP[(I - 1) * Stride + J] >= DP[I * Stride + (J - 1)] then
+      Dec(I)
+    else
+      Dec(J);
+  end;
+
+  I := 0;
+  J := 0;
+  while (I < MidSrc) or (J < MidTgt) do
+  begin
+    GapSrcStart := I;
+    while (I < MidSrc) and (not SrcMatched[I]) do
+      Inc(I);
+    GapTgtStart := J;
+    while (J < MidTgt) and (not TgtMatched[J]) do
+      Inc(J);
+
+    if (I > GapSrcStart) and (J > GapTgtStart) then
+    begin
+      for K := GapSrcStart to I - 1 do
+        FSourceLineDiffs[PrefixLen + K] := dlkChanged;
+      for K := GapTgtStart to J - 1 do
+        FTargetLineDiffs[PrefixLen + K] := dlkChanged;
+    end
+    else if I > GapSrcStart then
+    begin
+      for K := GapSrcStart to I - 1 do
+        FSourceLineDiffs[PrefixLen + K] := dlkAdded;
+    end
+    else if J > GapTgtStart then
+    begin
+      for K := GapTgtStart to J - 1 do
+        FTargetLineDiffs[PrefixLen + K] := dlkRemoved;
+    end;
+
+    if (I < MidSrc) and (J < MidTgt) and SrcMatched[I] and TgtMatched[J] then
+    begin
+      Inc(I);
+      Inc(J);
+    end;
+  end;
+end;
+
 procedure TDatabaseComparerFrame.ShowRowDDL(const ARowIdx: Integer);
 begin
   if (FResult = nil) or (ARowIdx < 0) or (ARowIdx > High(FResult.Items)) then
   begin
     SynEditSourceDDL.Clear;
     SynEditTargetDDL.Clear;
+    SetLength(FSourceLineDiffs, 0);
+    SetLength(FTargetLineDiffs, 0);
+    SynEditSourceDDL.Invalidate;
+    SynEditTargetDDL.Invalidate;
     Exit;
   end;
   SynEditSourceDDL.Lines.Text := FResult.Items[ARowIdx].SourceDDL;
   SynEditTargetDDL.Lines.Text := FResult.Items[ARowIdx].TargetDDL;
+  ComputeDDLDiffHighlights;
+  SynEditSourceDDL.Invalidate;
+  SynEditTargetDDL.Invalidate;
 end;
 
 procedure TDatabaseComparerFrame.ToggleRowSelection(const ARowIdx: Integer);

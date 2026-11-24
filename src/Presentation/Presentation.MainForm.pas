@@ -38,10 +38,12 @@ uses
   Presentation.DatabaseComparerFrame,
   Presentation.DatabaseMaintenanceForm,
   Presentation.ScriptExecutorFrame,
-  Presentation.SqlBeautifierHelper;
+  Presentation.SqlBeautifierHelper,
+  Presentation.DatabaseToolsForm,
+  Presentation.DataImportForm;
 
 type
-  TExplorerNodeKind = (enkGroup, enkConnection, enkCategory, enkObject);
+  TExplorerNodeKind = (enkGroup, enkConnection, enkDatabase, enkCategory, enkObject);
 
   TExplorerNodeData = class
   public
@@ -200,6 +202,7 @@ type
     FMonitorUseCase: TDatabaseMonitoringUseCase;
     FManageTableStructure: TManageTableStructureUseCase;
     FConnections: TConnectionProfileList;
+    FDatabaseProfiles: TConnectionProfileList;
     FQueryHistory: IQueryHistoryService;
     FNodeDataList: TExplorerNodeDataList;
     FTabCounter: Integer;
@@ -208,8 +211,19 @@ type
     miSelectSchema: TMenuItem;
     miToolQueryHistory: TMenuItem;
     miToolReplication: TMenuItem;
+    miToolMetadataSearch: TMenuItem;
+    miToolIndexManager: TMenuItem;
+    miToolImportData: TMenuItem;
+    miToolDocs: TMenuItem;
+    miConnMetadataSearch: TMenuItem;
+    miConnIndexManager: TMenuItem;
+    miConnImportData: TMenuItem;
     miToolAbout: TMenuItem;
     pnlBrandHeader: TPanel;
+    procedure miToolMetadataSearchClick(Sender: TObject);
+    procedure miToolIndexManagerClick(Sender: TObject);
+    procedure miToolImportDataClick(Sender: TObject);
+    procedure miToolDocsClick(Sender: TObject);
     procedure ApplyVisualTheme;
     procedure HandleOpenSqlFromHistory(const AProfileId, ASqlText: string);
     procedure InitializeDependencies;
@@ -230,7 +244,7 @@ type
     procedure HandleOpenViewData(const AProfileId, AViewName: string);
     procedure HandleOpenSqlFromTool(const AProfileId, ATitle, ASqlText: string);
     procedure HandleOpenTableSqlScript(const AProfile: TConnectionProfile; const ATitle, ASqlText: string);
-    function OpenNewEditorTab(const AInitialProfileId: string = ''; const ACaption: string = ''): TSqlEditorFrame;
+    function OpenNewEditorTab(const AInitialProfileId: string = ''; const ACaption: string = ''; const AOverrideProfile: TConnectionProfile = nil): TSqlEditorFrame;
     function FindEditorTabIndex(const ATab: TTabSheet): Integer;
     procedure CloseEditorTab(const ATab: TTabSheet);
     procedure HandleDeferredCloseTab(Data: PtrInt);
@@ -303,6 +317,7 @@ begin
   FNextSortAsc := True;
   FLastLeftPanelWidth := pnlLeft.Width;
   FNodeDataList := TExplorerNodeDataList.Create(True);
+  FDatabaseProfiles := TConnectionProfileList.Create(True);
   InitializeDependencies;
   RefreshConnectionsTree;
   RestoreWorkspace;
@@ -325,11 +340,48 @@ begin
     miToolReplication.OnClick := @miToolReplicationClick;
     miMenuScriptExec.Parent.Add(miToolReplication);
 
+    miToolMetadataSearch := TMenuItem.Create(Self);
+    miToolMetadataSearch.Caption := 'Buscar nos Metadados / Código-Fonte...';
+    miToolMetadataSearch.ShortCut := Menus.ShortCut(VK_F, [ssCtrl, ssShift]);
+    miToolMetadataSearch.OnClick := @miToolMetadataSearchClick;
+    miMenuScriptExec.Parent.Add(miToolMetadataSearch);
+
+    miToolIndexManager := TMenuItem.Create(Self);
+    miToolIndexManager.Caption := 'Gerenciador de Índices e Estatísticas...';
+    miToolIndexManager.OnClick := @miToolIndexManagerClick;
+    miMenuScriptExec.Parent.Add(miToolIndexManager);
+
+    miToolImportData := TMenuItem.Create(Self);
+    miToolImportData.Caption := 'Importar Dados (Excel / CSV / TXT -> Tabela)...';
+    miToolImportData.OnClick := @miToolImportDataClick;
+    miMenuScriptExec.Parent.Add(miToolImportData);
+
+    miToolDocs := TMenuItem.Create(Self);
+    miToolDocs.Caption := 'Documentação e Funcionalidades (F1)...';
+    miToolDocs.ShortCut := Menus.ShortCut(VK_F1, []);
+    miToolDocs.OnClick := @miToolDocsClick;
+    miMenuScriptExec.Parent.Add(miToolDocs);
+
     miToolAbout := TMenuItem.Create(Self);
     miToolAbout.Caption := 'Sobre o Multi-DB SQL Editor...';
     miToolAbout.OnClick := @miToolAboutClick;
     miMenuScriptExec.Parent.Add(miToolAbout);
   end;
+
+  miConnMetadataSearch := TMenuItem.Create(pmConnections);
+  miConnMetadataSearch.Caption := 'Buscar nos Metadados (Ctrl+Shift+F)...';
+  miConnMetadataSearch.OnClick := @miToolMetadataSearchClick;
+  pmConnections.Items.Insert(pmConnections.Items.IndexOf(miCompareDb) + 1, miConnMetadataSearch);
+
+  miConnIndexManager := TMenuItem.Create(pmConnections);
+  miConnIndexManager.Caption := 'Gerenciador de Índices e Estatísticas...';
+  miConnIndexManager.OnClick := @miToolIndexManagerClick;
+  pmConnections.Items.Insert(pmConnections.Items.IndexOf(miConnMetadataSearch) + 1, miConnIndexManager);
+
+  miConnImportData := TMenuItem.Create(pmConnections);
+  miConnImportData.Caption := 'Importar Dados (Excel / CSV / TXT)...';
+  miConnImportData.OnClick := @miToolImportDataClick;
+  pmConnections.Items.Insert(pmConnections.Items.IndexOf(miConnIndexManager) + 1, miConnImportData);
   OnShortCut := @FormShortCut;
   ApplyVisualTheme;
   StatusBar1.SimpleText := 'Pronto (F9 executa | Alt+F formata SQL | Ctrl+F12 Script Executive | Ctrl+Espaço autocompleta)';
@@ -344,6 +396,16 @@ begin
       FormatSynEditSql(TSynEdit(ActiveControl));
       Handled := True;
     end;
+  end
+  else if (Msg.CharCode = Ord('F')) and (KeyDataToShiftState(Msg.KeyData) = [ssCtrl, ssShift]) then
+  begin
+    miToolMetadataSearchClick(nil);
+    Handled := True;
+  end
+  else if (Msg.CharCode = VK_F1) and (KeyDataToShiftState(Msg.KeyData) = []) then
+  begin
+    miToolDocsClick(nil);
+    Handled := True;
   end;
 end;
 
@@ -421,6 +483,7 @@ begin
   Forms.Application.RemoveAsyncCalls(Self);
   SaveWorkspace;
   FreeAndNil(FNodeDataList);
+  FreeAndNil(FDatabaseProfiles);
   FreeAndNil(FWorkspaceRepo);
   FreeAndNil(FConnections);
   FreeAndNil(FManageTableStructure);
@@ -481,6 +544,8 @@ begin
   try
     tvConnections.Items.Clear;
     FNodeDataList.Clear;
+    if FDatabaseProfiles <> nil then
+      FDatabaseProfiles.Clear;
     FreeAndNil(FConnections);
     FConnections := FManageConnections.ListAll;
 
@@ -497,6 +562,12 @@ begin
       else if Profile.DatabaseType = dtMariaDB then
         ConnNode := tvConnections.Items.AddChildObject(
           RootMariaDB, Profile.Name, CreateNodeData(enkConnection, Profile)
+        )
+      else if Trim(Profile.Database) = '' then
+        ConnNode := tvConnections.Items.AddChildObject(
+          RootPostgres,
+          Format('%s [servidor]', [Profile.Name]),
+          CreateNodeData(enkConnection, Profile)
         )
       else
         ConnNode := tvConnections.Items.AddChildObject(
@@ -565,6 +636,8 @@ var
         SelfMatches := False;
       enkConnection:
         SelfMatches := Pos(FilterText, LowerCase(Data.Profile.Name)) > 0;
+      enkDatabase:
+        SelfMatches := AParentMatched or (Pos(FilterText, LowerCase(Data.Profile.Database)) > 0);
       enkCategory:
         SelfMatches := AParentMatched or (Pos(FilterText, LowerCase(SchemaObjectKindToStr(Data.Category))) > 0);
       enkObject:
@@ -658,8 +731,8 @@ end;
 
 function TMainForm.FindCategoryNode(const AProfileId: string; const AKind: TSchemaObjectKind): TTreeNode;
 var
-  GroupNode, ConnNode, CatNode: TTreeNode;
-  Data: TExplorerNodeData;
+  GroupNode, ConnNode, ChildNode, CatNode: TTreeNode;
+  Data, ChildData: TExplorerNodeData;
 begin
   Result := nil;
   GroupNode := tvConnections.Items.GetFirstNode;
@@ -671,19 +744,48 @@ begin
       if ConnNode.Data <> nil then
       begin
         Data := TExplorerNodeData(ConnNode.Data);
-        if (Data.Kind = enkConnection) and (Data.Profile <> nil) and
-           SameText(Data.Profile.Id, AProfileId) then
+        if (Data.Kind = enkConnection) and (Data.Profile <> nil) then
         begin
-          CatNode := ConnNode.GetFirstChild;
-          while CatNode <> nil do
+          if SameText(Data.Profile.Id, AProfileId) then
           begin
-            if CatNode.Data <> nil then
+            CatNode := ConnNode.GetFirstChild;
+            while CatNode <> nil do
             begin
-              Data := TExplorerNodeData(CatNode.Data);
-              if (Data.Kind = enkCategory) and (Data.Category = AKind) then
-                Exit(CatNode);
+              if CatNode.Data <> nil then
+              begin
+                Data := TExplorerNodeData(CatNode.Data);
+                if (Data.Kind = enkCategory) and (Data.Category = AKind) then
+                  Exit(CatNode);
+              end;
+              CatNode := CatNode.GetNextSibling;
             end;
-            CatNode := CatNode.GetNextSibling;
+          end
+          else
+          begin
+            ChildNode := ConnNode.GetFirstChild;
+            while ChildNode <> nil do
+            begin
+              if ChildNode.Data <> nil then
+              begin
+                ChildData := TExplorerNodeData(ChildNode.Data);
+                if (ChildData.Kind = enkDatabase) and (ChildData.Profile <> nil) and
+                   SameText(ChildData.Profile.Id, AProfileId) then
+                begin
+                  CatNode := ChildNode.GetFirstChild;
+                  while CatNode <> nil do
+                  begin
+                    if CatNode.Data <> nil then
+                    begin
+                      Data := TExplorerNodeData(CatNode.Data);
+                      if (Data.Kind = enkCategory) and (Data.Category = AKind) then
+                        Exit(CatNode);
+                    end;
+                    CatNode := CatNode.GetNextSibling;
+                  end;
+                end;
+              end;
+              ChildNode := ChildNode.GetNextSibling;
+            end;
           end;
         end;
       end;
@@ -833,7 +935,11 @@ begin
   HandleOpenSqlFromTool(ProfileId, ATitle, ASqlText);
 end;
 
-function TMainForm.OpenNewEditorTab(const AInitialProfileId: string; const ACaption: string): TSqlEditorFrame;
+function TMainForm.OpenNewEditorTab(
+  const AInitialProfileId: string;
+  const ACaption: string;
+  const AOverrideProfile: TConnectionProfile
+): TSqlEditorFrame;
 var
   Tab: TTabSheet;
 begin
@@ -853,6 +959,8 @@ begin
   Result.OnOpenObject := @HandleOpenTableDependency;
   Result.QueryHistory := FQueryHistory;
   Result.Initialize(FFactory, FExecuteQuery, FConnections, AInitialProfileId);
+  if AOverrideProfile <> nil then
+    Result.SelectOrAddProfile(AOverrideProfile);
 
   pgEditors.ActivePage := Tab;
 end;
@@ -1117,6 +1225,7 @@ begin
   if (pgEditors = nil) or (Trim(AProfileId) = '') then
     Exit;
 
+  ReloadCategoryForProfile(AProfileId, sokTables);
   for I := 0 to pgEditors.PageCount - 1 do
   begin
     Tab := pgEditors.Pages[I];
@@ -1798,8 +1907,9 @@ procedure TMainForm.tvConnectionsExpanding(Sender: TObject; Node: TTreeNode;
 var
   Data: TExplorerNodeData;
   Cat: TSchemaObjectKind;
-  CatNode: TTreeNode;
-  Objects: TStringList;
+  CatNode, DbNode: TTreeNode;
+  Objects, Databases: TStringList;
+  DbProfile: TConnectionProfile;
   I: Integer;
 begin
   if (Node = nil) or (Node.Data = nil) then
@@ -1809,7 +1919,54 @@ begin
   if Data.Loaded then
     Exit;
 
-  if Data.Kind = enkConnection then
+  if (Data.Kind = enkConnection) and (Data.Profile <> nil) and
+     (Data.Profile.DatabaseType = dtPostgreSQL) and (Trim(Data.Profile.Database) = '') then
+  begin
+    Screen.Cursor := crHourGlass;
+    tvConnections.Items.BeginUpdate;
+    try
+      try
+        Databases := FBrowseSchema.ListPostgresDatabases(Data.Profile);
+        try
+          Node.DeleteChildren;
+          for I := 0 to Databases.Count - 1 do
+          begin
+            DbProfile := Data.Profile.Clone;
+            DbProfile.Database := Databases[I];
+            DbProfile.Name := Format('%s (%s)', [Data.Profile.Name, Databases[I]]);
+            DbProfile.Id := Format('%s::%s', [Data.Profile.Id, Databases[I]]);
+            FDatabaseProfiles.Add(DbProfile);
+            DbNode := tvConnections.Items.AddChildObject(
+              Node,
+              Format('%s [%s]', [Databases[I], DbProfile.EffectiveSchema]),
+              CreateNodeData(enkDatabase, DbProfile)
+            );
+            DbNode.HasChildren := True;
+          end;
+          Node.Text := Format('%s [servidor] (%d)', [Data.Profile.Name, Databases.Count]);
+          Data.TotalCount := Databases.Count;
+          Data.Loaded := True;
+        finally
+          Databases.Free;
+        end;
+      except
+        on E: Exception do
+        begin
+          AllowExpansion := False;
+          MessageDlg('Erro ao listar bancos de dados', E.Message, mtError, [mbOK], 0);
+        end;
+      end;
+    finally
+      tvConnections.Items.EndUpdate;
+      Screen.Cursor := crDefault;
+    end;
+    if Trim(edtTreeFilter.Text) <> '' then
+    begin
+      ApplyTreeFilter;
+      UpdateConnectionButtonsState;
+    end;
+  end
+  else if Data.Kind in [enkConnection, enkDatabase] then
   begin
     tvConnections.Items.BeginUpdate;
     try
@@ -1960,7 +2117,7 @@ var
 begin
   Profile := SelectedProfile;
   if Profile <> nil then
-    OpenNewEditorTab(Profile.Id, Profile.Name)
+    OpenNewEditorTab(Profile.Id, Profile.Name, Profile)
   else
     OpenNewEditorTab;
 end;
@@ -2144,7 +2301,14 @@ begin
     Exit;
 
   if Data.Kind = enkConnection then
-    OpenNewEditorTab(Data.Profile.Id, Data.Profile.Name)
+  begin
+    if (Data.Profile <> nil) and (Data.Profile.DatabaseType = dtPostgreSQL) and
+       (Trim(Data.Profile.Database) = '') then
+      Exit;
+    OpenNewEditorTab(Data.Profile.Id, Data.Profile.Name);
+  end
+  else if Data.Kind = enkDatabase then
+    OpenNewEditorTab(Data.Profile.Id, Data.Profile.Name, Data.Profile)
   else if Data.Kind = enkObject then
   begin
     case Data.Category of
@@ -2289,8 +2453,8 @@ begin
   IsCat := (Data <> nil) and (Data.Kind = enkCategory);
   IsObj := (Data <> nil) and (Data.Kind = enkObject);
 
-  Profile := nil;
-  if HasConn and (ConnNode.Data <> nil) then
+  Profile := SelectedProfile;
+  if (Profile = nil) and HasConn and (ConnNode.Data <> nil) then
     Profile := TExplorerNodeData(ConnNode.Data).Profile;
 
   Summary := Default(TProfileSessionSummary);
@@ -2302,6 +2466,12 @@ begin
   miMonitorDb.Enabled := HasConn;
   miCompareDb.Enabled := HasConn;
   miMaintenanceDb.Enabled := HasConn;
+  if miConnMetadataSearch <> nil then
+    miConnMetadataSearch.Enabled := HasConn;
+  if miConnIndexManager <> nil then
+    miConnIndexManager.Enabled := HasConn;
+  if miConnImportData <> nil then
+    miConnImportData.Enabled := HasConn;
 
   miEditObject.Visible := IsObj and (Data.Category in [sokTables, sokViews, sokProcedures, sokTriggers, sokGenerators]);
   if IsObj and (Data.Category = sokTables) then
@@ -2315,7 +2485,7 @@ begin
   miViewObjectData.Visible := IsObj and (Data.Category in [sokTables, sokViews]);
   miNewObject.Visible := (IsCat or IsObj) and (Data.Category in [sokViews, sokProcedures, sokTriggers, sokGenerators]);
   miRefreshCategory.Visible := IsCat or IsObj;
-  miDropObject.Visible := IsObj and (Data.Category in [sokViews, sokProcedures, sokTriggers, sokGenerators]) and
+  miDropObject.Visible := IsObj and (Data.Category in [sokTables, sokViews, sokProcedures, sokTriggers, sokGenerators]) and
     not ((Data.Profile <> nil) and (Data.Profile.DatabaseType = dtPostgreSQL) and (Data.Category = sokTriggers));
   miSepObj.Visible := miEditObject.Visible or miViewObjectDDL.Visible or miViewObjectData.Visible or
     miNewObject.Visible or miRefreshCategory.Visible or miDropObject.Visible;
@@ -2331,7 +2501,8 @@ begin
   miEditConn.Enabled := HasConn;
   if miSelectSchema <> nil then
   begin
-    miSelectSchema.Visible := HasConn and (Profile <> nil) and (Profile.DatabaseType = dtPostgreSQL);
+    miSelectSchema.Visible := (Profile <> nil) and (Profile.DatabaseType = dtPostgreSQL) and
+      not ((Data <> nil) and (Data.Kind = enkConnection) and (Trim(Profile.Database) = ''));
     if miSelectSchema.Visible then
       miSelectSchema.Caption := Format('Selecionar Schema (%s)...', [Profile.EffectiveSchema]);
   end;
@@ -2348,13 +2519,15 @@ var
   ConnNode: TTreeNode;
   Profile: TConnectionProfile;
 begin
-  ConnNode := SelectedConnectionNode;
-  if (ConnNode <> nil) and (ConnNode.Data <> nil) then
+  Profile := SelectedProfile;
+  if Profile = nil then
   begin
-    Profile := TExplorerNodeData(ConnNode.Data).Profile;
-    if Profile <> nil then
-      OpenNewEditorTab(Profile.Id, Profile.Name);
+    ConnNode := SelectedConnectionNode;
+    if (ConnNode <> nil) and (ConnNode.Data <> nil) then
+      Profile := TExplorerNodeData(ConnNode.Data).Profile;
   end;
+  if Profile <> nil then
+    OpenNewEditorTab(Profile.Id, Profile.Name, Profile);
 end;
 
 procedure TMainForm.miScriptExecClick(Sender: TObject);
@@ -2507,10 +2680,27 @@ begin
   if (Data = nil) or (Data.Kind <> enkObject) or (Data.Profile = nil) then
     Exit;
 
-  if MessageDlg('Confirmar Exclusão',
-    Format('Deseja realmente excluir "%s" de "%s"?', [Data.ObjectName, Data.Profile.Name]),
-    mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
-    Exit;
+  if Data.Category = sokTables then
+  begin
+    if MessageDlg('Confirmar Exclusão da Tabela (1/2)',
+      Format('Deseja excluir permanentemente a tabela "%s" e TODOS os seus dados de "%s"?',
+        [Data.ObjectName, Data.Profile.Name]),
+      mtWarning, [mbYes, mbNo], 0) <> mrYes then
+      Exit;
+
+    if MessageDlg('Confirmação Final — Exclusão Irreversível (2/2)',
+      Format('ATENÇÃO: Esta operação NÃO pode ser desfeita (DROP TABLE %s).' + LineEnding + LineEnding +
+        'Confirma em definitivo a EXCLUSÃO da tabela "%s"?', [Data.ObjectName, Data.ObjectName]),
+      mtWarning, [mbYes, mbNo], 0) <> mrYes then
+      Exit;
+  end
+  else
+  begin
+    if MessageDlg('Confirmar Exclusão',
+      Format('Deseja realmente excluir "%s" de "%s"?', [Data.ObjectName, Data.Profile.Name]),
+      mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+      Exit;
+  end;
 
   if FManageObjects.DropObject(Data.Profile, Data.Category, Data.ObjectName, Msg) then
   begin
@@ -2639,15 +2829,39 @@ begin
       if (Dlg.ShowModal = mrOk) and (Lb.ItemIndex >= 0) then
       begin
         ChosenSchema := Lb.Items[Lb.ItemIndex];
-        UpdatedProfile := Profile.Clone;
-        try
-          UpdatedProfile.Schema := ChosenSchema;
-          FManageConnections.Save(UpdatedProfile);
-        finally
-          UpdatedProfile.Free;
+        if (SelectedNodeData <> nil) and (SelectedNodeData.Kind in [enkDatabase, enkCategory, enkObject]) and
+           (Pos('::', Profile.Id) > 0) then
+        begin
+          Profile.Schema := ChosenSchema;
+          // Atualiza nó enkDatabase correspondente e recarrega categorias se já expandido
+          while (tvConnections.Selected <> nil) and (tvConnections.Selected.Data <> nil) and
+                (TExplorerNodeData(tvConnections.Selected.Data).Kind <> enkDatabase) do
+            tvConnections.Selected := tvConnections.Selected.Parent;
+          if (tvConnections.Selected <> nil) and (tvConnections.Selected.Data <> nil) and
+             (TExplorerNodeData(tvConnections.Selected.Data).Kind = enkDatabase) then
+          begin
+            tvConnections.Selected.Text := Format('%s [%s]', [Profile.Database, ChosenSchema]);
+            TExplorerNodeData(tvConnections.Selected.Data).Loaded := False;
+            if tvConnections.Selected.Expanded then
+            begin
+              tvConnections.Selected.Collapse(False);
+              tvConnections.Selected.Expand(False);
+            end;
+          end;
+          StatusBar1.SimpleText := Format('Schema ativo de "%s" alterado para "%s".', [Profile.Name, ChosenSchema]);
+        end
+        else
+        begin
+          UpdatedProfile := Profile.Clone;
+          try
+            UpdatedProfile.Schema := ChosenSchema;
+            FManageConnections.Save(UpdatedProfile);
+          finally
+            UpdatedProfile.Free;
+          end;
+          RefreshConnectionsTree(Profile.Id);
+          StatusBar1.SimpleText := Format('Schema ativo de "%s" alterado para "%s".', [Profile.Name, ChosenSchema]);
         end;
-        RefreshConnectionsTree(Profile.Id);
-        StatusBar1.SimpleText := Format('Schema ativo de "%s" alterado para "%s".', [Profile.Name, ChosenSchema]);
       end;
     finally
       Dlg.Free;
@@ -2768,7 +2982,7 @@ var
   Pic: TPicture;
   RS: TResourceStream;
   LblInfo: TLabel;
-  BtnClose: TButton;
+  BtnClose, BtnDocs: TButton;
 begin
   Dlg := TForm.CreateNew(nil);
   try
@@ -2819,6 +3033,15 @@ begin
     BtnClose.Height := 28;
     BtnClose.Left := Dlg.ClientWidth - 106;
     BtnClose.Top := 348;
+
+    BtnDocs := TButton.Create(Dlg);
+    BtnDocs.Parent := Dlg;
+    BtnDocs.Caption := 'Ver Documentação Completa (F1)...';
+    BtnDocs.Width := 230;
+    BtnDocs.Height := 28;
+    BtnDocs.Left := 16;
+    BtnDocs.Top := 348;
+    BtnDocs.OnClick := @miToolDocsClick;
 
     Dlg.ShowModal;
   finally
@@ -2914,8 +3137,57 @@ begin
     else if SameText(Node.Text, 'MariaDB') then
       Sender.Canvas.Font.Color := $00807015;
   end
-  else if Data.Kind = enkConnection then
+  else if Data.Kind in [enkConnection, enkDatabase] then
+  begin
     Sender.Canvas.Font.Style := [fsBold];
+    if (Data.Profile <> nil) and (Data.Profile.EnvironmentTextColor <> 0) then
+      Sender.Canvas.Font.Color := TColor(Data.Profile.EnvironmentTextColor);
+  end;
+end;
+
+procedure TMainForm.miToolMetadataSearchClick(Sender: TObject);
+var
+  Profile: TConnectionProfile;
+  InitialId: string;
+begin
+  Profile := SelectedProfile;
+  if Profile <> nil then
+    InitialId := Profile.Id
+  else
+    InitialId := '';
+  TMetadataSearchForm.Execute(FFactory, FConnections, InitialId, @HandleOpenTableDependency);
+end;
+
+procedure TMainForm.miToolIndexManagerClick(Sender: TObject);
+var
+  Profile: TConnectionProfile;
+  InitialId: string;
+begin
+  Profile := SelectedProfile;
+  if Profile <> nil then
+    InitialId := Profile.Id
+  else
+    InitialId := '';
+  TIndexManagerForm.Execute(FFactory, FConnections, InitialId, @HandleOpenTableDependency);
+end;
+
+procedure TMainForm.miToolImportDataClick(Sender: TObject);
+var
+  Profile: TConnectionProfile;
+  TableName: string;
+  NodeData: TExplorerNodeData;
+begin
+  Profile := SelectedProfile;
+  TableName := '';
+  NodeData := SelectedNodeData;
+  if (NodeData <> nil) and (NodeData.Kind = enkObject) and (NodeData.Category = sokTables) then
+    TableName := NodeData.ObjectName;
+  TDataImportForm.Execute(FFactory, FConnections, Profile, TableName);
+end;
+
+procedure TMainForm.miToolDocsClick(Sender: TObject);
+begin
+  TDocumentationForm.Execute;
 end;
 
 end.

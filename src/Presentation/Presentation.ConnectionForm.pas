@@ -60,6 +60,9 @@ type
     FProfile: TConnectionProfile;
     FTestUseCase: TTestConnectionUseCase;
     FIsAutoFilling: Boolean;
+    lblEnvironment: TLabel;
+    cbEnvironment: TComboBox;
+    procedure EnsureEnvironmentControls;
     procedure TryAutoParseConnectionString(const AText: string);
     procedure UpdateFieldsForDatabaseType;
     procedure LoadFromProfile(const AProfile: TConnectionProfile);
@@ -95,8 +98,34 @@ begin
   end;
 end;
 
+procedure TConnectionForm.EnsureEnvironmentControls;
+begin
+  if cbEnvironment <> nil then
+    Exit;
+
+  lblEnvironment := TLabel.Create(Self);
+  lblEnvironment.Parent := pnlContent;
+  lblEnvironment.Left := 0;
+  lblEnvironment.Top := 306;
+  lblEnvironment.Caption := 'Ambiente / Cor de Alerta:';
+
+  cbEnvironment := TComboBox.Create(Self);
+  cbEnvironment.Parent := pnlContent;
+  cbEnvironment.Left := 0;
+  cbEnvironment.Top := 324;
+  cbEnvironment.Width := pnlContent.ClientWidth;
+  cbEnvironment.Anchors := [akTop, akLeft, akRight];
+  cbEnvironment.Style := csDropDownList;
+  cbEnvironment.Items.Add('Padrão (Sem cor)');
+  cbEnvironment.Items.Add('Desenvolvimento (Verde)');
+  cbEnvironment.Items.Add('Homologação (Amarelo)');
+  cbEnvironment.Items.Add('Produção (Vermelho + Alerta de Segurança)');
+  cbEnvironment.ItemIndex := 0;
+end;
+
 procedure TConnectionForm.LoadFromProfile(const AProfile: TConnectionProfile);
 begin
+  EnsureEnvironmentControls;
   if Trim(AProfile.Id) = '' then
     Caption := 'Nova Conexão de Banco de Dados'
   else
@@ -126,6 +155,17 @@ begin
       fv25: cbFirebirdVersion.ItemIndex := 4;
     else
       cbFirebirdVersion.ItemIndex := 0;
+    end;
+    if cbEnvironment <> nil then
+    begin
+      if SameText(AProfile.EnvironmentKind, 'Desenvolvimento') then
+        cbEnvironment.ItemIndex := 1
+      else if SameText(AProfile.EnvironmentKind, 'Homologacao') then
+        cbEnvironment.ItemIndex := 2
+      else if SameText(AProfile.EnvironmentKind, 'Producao') then
+        cbEnvironment.ItemIndex := 3
+      else
+        cbEnvironment.ItemIndex := 0;
     end;
     UpdateFieldsForDatabaseType;
   finally
@@ -161,6 +201,16 @@ begin
   else
     AProfile.FirebirdVersion := fvAuto;
   end;
+  if cbEnvironment <> nil then
+  begin
+    case cbEnvironment.ItemIndex of
+      1: AProfile.EnvironmentKind := 'Desenvolvimento';
+      2: AProfile.EnvironmentKind := 'Homologacao';
+      3: AProfile.EnvironmentKind := 'Producao';
+    else
+      AProfile.EnvironmentKind := 'Padrao';
+    end;
+  end;
 end;
 
 procedure TConnectionForm.UpdateFieldsForDatabaseType;
@@ -192,7 +242,10 @@ begin
   end
   else
   begin
-    lblDatabase.Caption := 'Nome do Banco (Database):';
+    if IsPostgres then
+      lblDatabase.Caption := 'Nome do Banco (Database - opcional para listar todos):'
+    else
+      lblDatabase.Caption := 'Nome do Banco (Database):';
     btnBrowseDb.Visible := False;
     edtDatabase.AnchorSideRight.Control := pnlContent;
     edtDatabase.AnchorSideRight.Side := asrBottom;

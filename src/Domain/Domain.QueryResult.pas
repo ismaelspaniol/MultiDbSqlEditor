@@ -136,6 +136,7 @@ type
     function FetchMore(const ABatchSize: Integer = 100): Integer;
     function FetchAll: Integer;
     function AppendRowsFrom(const ASource: TQueryResult): Integer;
+    function CloneSnapshot: TQueryResult;
     procedure SortByColumn(const AColIndex: Integer; const AAscending: Boolean);
     procedure CloseCursor;
     function TotalTrackedMemoryBytes: Int64;
@@ -171,6 +172,7 @@ function EstimateQueryRowBytes(const ARow: TQueryRow): Int64;
 function StripLeadingSqlComments(const ASQL: string): string;
 function IsSelectLikeSQLText(const ASQL: string; const AIncludeExplainShow: Boolean = False): Boolean;
 procedure TrimProcessMemoryUsage;
+procedure CleanupSpillTempFiles;
 
 threadvar
   GThreadAllowDiskSpill: Boolean;
@@ -957,6 +959,31 @@ begin
     MarkMemoryLimitReached;
 end;
 
+function TQueryResult.CloneSnapshot: TQueryResult;
+var
+  I, J: Integer;
+  SrcRow, DstRow: TQueryRow;
+begin
+  Result := TQueryResult.Create;
+  Result.Success := FSuccess;
+  Result.HasResultSet := FHasResultSet;
+  Result.RowsAffected := FRowsAffected;
+  Result.ExecutionTimeMs := FExecutionTimeMs;
+  Result.MessageText := FMessageText;
+  Result.ErrorCode := FErrorCode;
+  Result.MemoryLimitBytes := 0;
+  Result.SetColumns(FColumns);
+  for I := 0 to FRowCount - 1 do
+  begin
+    SrcRow := GetRow(I);
+    SetLength(DstRow, Length(SrcRow));
+    for J := 0 to High(SrcRow) do
+      DstRow[J] := SrcRow[J];
+    Result.AddRow(DstRow);
+  end;
+  Result.Performance.AssignFrom(FPerformance);
+end;
+
 procedure TQueryResult.SortByColumn(const AColIndex: Integer; const AAscending: Boolean);
 var
   InvFormat: TFormatSettings;
@@ -1109,5 +1136,32 @@ begin
   if (not Result) and AIncludeExplainShow then
     Result := StartsWithKeyword('SHOW') or StartsWithKeyword('EXPLAIN');
 end;
+
+procedure CleanupSpillTempFiles;
+var
+  TempDir: string;
+  SR: SysUtils.TSearchRec;
+begin
+  try
+    TempDir := IncludeTrailingPathDelimiter(GetTempDir(False));
+    if SysUtils.FindFirst(TempDir + 'multidb_spill_*.tmp', faAnyFile and (not faDirectory), SR) = 0 then
+    begin
+      try
+        repeat
+          if (SR.Name <> '.') and (SR.Name <> '..') then
+            SysUtils.DeleteFile(TempDir + SR.Name);
+        until SysUtils.FindNext(SR) <> 0;
+      finally
+        SysUtils.FindClose(SR);
+      end;
+    end;
+  except
+  end;
+end;
+
+initialization
+
+finalization
+  CleanupSpillTempFiles;
 
 end.

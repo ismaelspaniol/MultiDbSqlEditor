@@ -131,6 +131,7 @@ begin
   Result.Add('schema', AProfile.Schema);
   Result.Add('clientLibraryPath', AProfile.ClientLibraryPath);
   Result.Add('firebirdVersion', FirebirdVersionToStr(AProfile.FirebirdVersion));
+  Result.Add('environmentKind', AProfile.EnvironmentKind);
 end;
 
 function TJsonConnectionRepository.JsonToProfile(const AObj: TJSONObject): TConnectionProfile;
@@ -149,6 +150,7 @@ begin
   Result.Schema := AObj.Get('schema', 'public');
   Result.ClientLibraryPath := AObj.Get('clientLibraryPath', '');
   Result.FirebirdVersion := StrToFirebirdVersion(AObj.Get('firebirdVersion', 'Auto'));
+  Result.EnvironmentKind := AObj.Get('environmentKind', 'Padrao');
 end;
 
 function TJsonConnectionRepository.GetAll: TConnectionProfileList;

@@ -20,7 +20,8 @@ uses
   Application.GridDmlHelper,
   Presentation.QueryResultGridFrame,
   Presentation.SqlCompletionController,
-  Presentation.SqlObjectLinkController;
+  Presentation.SqlObjectLinkController,
+  Presentation.SqlQueryTools;
 
 type
   TExecutionStateChangedEvent = procedure(
@@ -97,6 +98,7 @@ type
     FSession: IDatabaseSession;
     FActiveProfileId: string;
     FProfiles: TConnectionProfileList;
+    FOverrideProfile: TConnectionProfile;
     FLastResult: TQueryResult;
     FIsFetchingMore: Boolean;
     FResultGrid: TQueryResultGridFrame;
@@ -125,6 +127,11 @@ type
     tvExplainVisual: TTreeView;
     btnRunExplain: TButton;
     chkSpillToDisk: TCheckBox;
+    btnSnippets: TButton;
+    btnPinResult: TButton;
+    FExtraSelectStatements: TStringList;
+    FExtraResultObjects: array of TQueryResult;
+    FPinnedCounter: Integer;
     FOnExecutionStateChanged: TExecutionStateChangedEvent;
     FOnOpenObject: TOpenDbObjectLinkEvent;
     procedure LogMessage(const AMsg: string);
@@ -155,6 +162,11 @@ type
     procedure UpdateDataTabCaption;
     procedure PopulateExplainTree(const ARoot: TExplainPlanNode; const ASummary: TExplainPlanSummary);
     procedure btnRunExplainClick(Sender: TObject);
+    procedure btnSnippetsClick(Sender: TObject);
+    procedure btnPinResultClick(Sender: TObject);
+    procedure btnCloseExtraTabClick(Sender: TObject);
+    procedure ClearUnpinnedExtraResultTabs;
+    procedure AddExtraResultTab(const ACaption: string; const AResult: TQueryResult; const APinned: Boolean);
     procedure tvExplainVisualCustomDrawItem(Sender: TCustomTreeView; Node: TTreeNode;
       State: TCustomDrawState; var DefaultDraw: Boolean);
     procedure TryFetchMoreRows;
@@ -175,6 +187,7 @@ type
       const AInitialProfileId: string = ''
     );
     procedure RefreshConnections(const AConnections: TConnectionProfileList);
+    procedure SelectOrAddProfile(const AProfile: TConnectionProfile);
     procedure ClearMetadataCache;
     procedure ExecuteCurrentSQL;
     function IsExecuting: Boolean;
@@ -209,6 +222,8 @@ uses
 {$R *.lfm}
 
 destructor TSqlEditorFrame.Destroy;
+var
+  K: Integer;
 begin
   if tmrExecElapsed <> nil then
     tmrExecElapsed.Enabled := False;
@@ -237,6 +252,11 @@ begin
     FResultGrid.SetResult(nil, False, False);
   FreeAndNil(FDmlHelper);
   FreeAndNil(FLastResult);
+  FreeAndNil(FExtraSelectStatements);
+  for K := 0 to High(FExtraResultObjects) do
+    FExtraResultObjects[K].Free;
+  SetLength(FExtraResultObjects, 0);
+  FreeAndNil(FOverrideProfile);
   FreeAndNil(FProfiles);
   inherited Destroy;
 end;
@@ -324,6 +344,31 @@ begin
     chkSpillToDisk.BorderSpacing.Right := 8;
   end;
 
+  if btnSnippets = nil then
+  begin
+    btnSnippets := TButton.Create(Self);
+    btnSnippets.Parent := pnlToolbar;
+    btnSnippets.Caption := 'Snippets';
+    btnSnippets.Hint := 'Abrir biblioteca de snippets e favoritos SQL';
+    btnSnippets.ShowHint := True;
+    btnSnippets.AutoSize := True;
+    btnSnippets.BorderSpacing.Right := 4;
+    btnSnippets.OnClick := @btnSnippetsClick;
+  end;
+
+  if btnPinResult = nil then
+  begin
+    btnPinResult := TButton.Create(Self);
+    btnPinResult.Parent := pnlToolbar;
+    btnPinResult.Caption := 'Fixar';
+    btnPinResult.Hint := 'Fixar resultado atual em uma nova aba para comparação';
+    btnPinResult.ShowHint := True;
+    btnPinResult.AutoSize := True;
+    btnPinResult.Enabled := False;
+    btnPinResult.BorderSpacing.Right := 6;
+    btnPinResult.OnClick := @btnPinResultClick;
+  end;
+
   if tvExplainVisual = nil then
   begin
     btnRunExplain := TButton.Create(Self);
@@ -379,6 +424,16 @@ begin
       end;
     end;
 
+    if (FOverrideProfile <> nil) and (SelectedIdx = -1) and SameText(TargetId, FOverrideProfile.Id) then
+    begin
+      Cloned := FOverrideProfile.Clone;
+      FProfiles.Add(Cloned);
+      SelectedIdx := cbConnection.Items.AddObject(
+        Format('%s [%s]', [Cloned.Name, DatabaseTypeToStr(Cloned.DatabaseType)]),
+        Cloned
+      );
+    end;
+
     if (SelectedIdx = -1) and (cbConnection.Items.Count > 0) then
       SelectedIdx := 0;
 
@@ -391,6 +446,43 @@ begin
   finally
     cbConnection.Items.EndUpdate;
   end;
+end;
+
+procedure TSqlEditorFrame.SelectOrAddProfile(const AProfile: TConnectionProfile);
+var
+  I, Idx: Integer;
+  Cloned: TConnectionProfile;
+begin
+  if AProfile = nil then
+    Exit;
+
+  Idx := -1;
+  for I := 0 to cbConnection.Items.Count - 1 do
+  begin
+    if (cbConnection.Items.Objects[I] <> nil) and
+       SameText(TConnectionProfile(cbConnection.Items.Objects[I]).Id, AProfile.Id) then
+    begin
+      Idx := I;
+      Break;
+    end;
+  end;
+
+  if Idx = -1 then
+  begin
+    FreeAndNil(FOverrideProfile);
+    FOverrideProfile := AProfile.Clone;
+    Cloned := AProfile.Clone;
+    FProfiles.Add(Cloned);
+    Idx := cbConnection.Items.AddObject(
+      Format('%s [%s]', [Cloned.Name, DatabaseTypeToStr(Cloned.DatabaseType)]),
+      Cloned
+    );
+  end;
+
+  cbConnection.ItemIndex := Idx;
+  FActiveProfileId := AProfile.Id;
+  ApplyHighlighterForProfile(AProfile);
+  UpdateTransactionUI;
 end;
 
 procedure TSqlEditorFrame.ClearMetadataCache;
@@ -409,6 +501,8 @@ begin
 end;
 
 procedure TSqlEditorFrame.ApplyHighlighterForProfile(const AProfile: TConnectionProfile);
+var
+  EnvColor: Integer;
 begin
   if AProfile = nil then
     Exit;
@@ -416,6 +510,18 @@ begin
     SynSQLSyn1.SQLDialect := sqlPostgres
   else
     SynSQLSyn1.SQLDialect := sqlFirebird40;
+
+  if pnlToolbar <> nil then
+  begin
+    EnvColor := AProfile.EnvironmentBannerColor;
+    if EnvColor <> 0 then
+    begin
+      pnlToolbar.ParentColor := False;
+      pnlToolbar.Color := TColor(EnvColor);
+    end
+    else
+      pnlToolbar.ParentColor := True;
+  end;
 end;
 
 procedure TSqlEditorFrame.cbConnectionChange(Sender: TObject);
@@ -1263,9 +1369,11 @@ end;
 procedure TSqlEditorFrame.HandleAsyncQueryCompleted(const AWorker: TAsyncSqlWorker);
 var
   NewResult: TQueryResult;
+  ExtraRes: TQueryResult;
   ErrMsg, StatusMsg, AutoLowRamMsg: string;
   WasCancel, AutoLowRam: Boolean;
   Prof: TConnectionProfile;
+  varK: Integer;
 begin
   if AWorker <> FActiveWorker then
     Exit;
@@ -1303,6 +1411,8 @@ begin
   UpdateDataTabCaption;
   UpdatePerformanceUI;
   btnExportCsv.Enabled := (FLastResult <> nil) and FLastResult.HasResultSet and (FLastResult.RowCount > 0);
+  if btnPinResult <> nil then
+    btnPinResult.Enabled := (FLastResult <> nil) and FLastResult.HasResultSet and (FLastResult.RowCount > 0);
 
   if ErrMsg <> '' then
   begin
@@ -1381,6 +1491,37 @@ begin
     MessageDlg('Proteção de Memória RAM do Sistema', FLastResult.LimitMessage, mtWarning, [mbOK], 0)
   else if AutoLowRam then
     MessageDlg('Proteção de Memória RAM do Sistema', AutoLowRamMsg, mtWarning, [mbOK], 0);
+
+  if (ErrMsg = '') and (FLastResult <> nil) and FLastResult.Success and
+     (FExtraSelectStatements <> nil) and (FExtraSelectStatements.Count > 0) and (FSession <> nil) then
+  begin
+    for varK := 0 to FExtraSelectStatements.Count - 1 do
+    begin
+      try
+        ExtraRes := FSession.ExecuteSQL(
+          FExtraSelectStatements[varK],
+          chkAutoCommit.Checked,
+          CurrentBatchSize,
+          CurrentMemoryLimitBytes
+        );
+        if ExtraRes <> nil then
+        begin
+          if ExtraRes.Success and ExtraRes.HasResultSet then
+            AddExtraResultTab(Format('Resultado %d (%d)', [varK + 2, ExtraRes.RowCount]), ExtraRes, False)
+          else
+          begin
+            if not ExtraRes.Success then
+              LogMessage(Format('ERRO Resultado %d: %s', [varK + 2, ExtraRes.MessageText]));
+            ExtraRes.Free;
+          end;
+        end;
+      except
+        on E: Exception do
+          LogMessage(Format('ERRO Resultado %d: %s', [varK + 2, E.Message]));
+      end;
+    end;
+    FExtraSelectStatements.Clear;
+  end;
 end;
 
 procedure TSqlEditorFrame.HandleAsyncFetchAllCompleted(const AWorker: TAsyncSqlWorker);
@@ -1633,9 +1774,12 @@ end;
 procedure TSqlEditorFrame.ExecuteCurrentSQL;
 var
   Profile: TConnectionProfile;
-  SQLToRun, LowRamPrompt: string;
+  SQLToRun, ResolvedSQL, LowRamPrompt, ProdReason: string;
   Provider: IDatabaseProvider;
   SysMem: TSystemMemoryInfo;
+  SplitList: TStringList;
+  I: Integer;
+  AllSelects: Boolean;
 begin
   if FIsExecuting then
   begin
@@ -1660,7 +1804,61 @@ begin
     LogMessage('Nenhuma instrução SQL para executar.');
     Exit;
   end;
+
+  if Profile.IsProduction and IsDestructiveSqlForProduction(SQLToRun, ProdReason) then
+  begin
+    if MessageDlg(
+         'ALERTA DE PRODUÇÃO',
+         ProdReason + LineEnding + LineEnding + 'Deseja realmente executar esta instrução na base de PRODUÇÃO?',
+         mtWarning, [mbYes, mbNo], 0
+       ) <> mrYes then
+    begin
+      LogMessage('Execução cancelada pelo usuário (proteção de ambiente de Produção).');
+      Exit;
+    end;
+  end;
+
+  if not PromptAndResolveSqlParameters(SQLToRun, Profile.DatabaseType, ResolvedSQL) then
+  begin
+    LogMessage('Execução cancelada na janela de parâmetros.');
+    Exit;
+  end;
+  SQLToRun := ResolvedSQL;
+
   FLastExecutedSQL := SQLToRun;
+  ClearUnpinnedExtraResultTabs;
+  if FExtraSelectStatements = nil then
+    FExtraSelectStatements := TStringList.Create
+  else
+    FExtraSelectStatements.Clear;
+
+  SplitList := TStringList.Create;
+  try
+    SplitSelectStatements(SQLToRun, SplitList);
+    if SplitList.Count > 1 then
+    begin
+      AllSelects := True;
+      for I := 0 to SplitList.Count - 1 do
+      begin
+        if not IsSelectLikeSQLText(SplitList[I], True) then
+        begin
+          AllSelects := False;
+          Break;
+        end;
+      end;
+      if AllSelects then
+      begin
+        SQLToRun := SplitList[0];
+        for I := 1 to SplitList.Count - 1 do
+          FExtraSelectStatements.Add(SplitList[I]);
+      end;
+    end;
+  finally
+    SplitList.Free;
+  end;
+
+  if btnPinResult <> nil then
+    btnPinResult.Enabled := False;
 
   if FSession = nil then
   begin
@@ -2279,6 +2477,120 @@ begin
   finally
     Screen.Cursor := crDefault;
   end;
+end;
+
+procedure TSqlEditorFrame.btnSnippetsClick(Sender: TObject);
+var
+  Prof: TConnectionProfile;
+  DbType: TDatabaseType;
+begin
+  Prof := SelectedProfile;
+  if Prof <> nil then
+    DbType := Prof.DatabaseType
+  else
+    DbType := dtFirebird;
+  ShowSqlSnippetsDialog(SynEdit1, DbType);
+end;
+
+procedure TSqlEditorFrame.ClearUnpinnedExtraResultTabs;
+var
+  I: Integer;
+  Tab: TTabSheet;
+begin
+  if pgBottom = nil then
+    Exit;
+  for I := pgBottom.PageCount - 1 downto 0 do
+  begin
+    Tab := pgBottom.Pages[I];
+    if (Tab <> tsData) and (Tab <> tsPerformance) and (Tab <> tsMessages) and (Tab.Tag = 1) then
+      Tab.Free;
+  end;
+end;
+
+procedure TSqlEditorFrame.AddExtraResultTab(
+  const ACaption: string;
+  const AResult: TQueryResult;
+  const APinned: Boolean
+);
+var
+  Tab: TTabSheet;
+  PnlBar: TPanel;
+  BtnCloseTab: TButton;
+  LblInfo: TLabel;
+  Grid: TQueryResultGridFrame;
+  N: Integer;
+begin
+  if (pgBottom = nil) or (AResult = nil) then
+    Exit;
+
+  N := Length(FExtraResultObjects);
+  SetLength(FExtraResultObjects, N + 1);
+  FExtraResultObjects[N] := AResult;
+
+  Tab := TTabSheet.Create(pgBottom);
+  Tab.PageControl := pgBottom;
+  Tab.Caption := ACaption;
+  if APinned then
+    Tab.Tag := 2
+  else
+    Tab.Tag := 1;
+
+  PnlBar := TPanel.Create(Tab);
+  PnlBar.Parent := Tab;
+  PnlBar.Align := alTop;
+  PnlBar.Height := 28;
+  PnlBar.BevelOuter := bvNone;
+
+  LblInfo := TLabel.Create(Tab);
+  LblInfo.Parent := PnlBar;
+  LblInfo.Left := 8;
+  LblInfo.Top := 7;
+  if APinned then
+    LblInfo.Caption := Format('Resultado fixado às %s (%d registro(s))', [FormatDateTime('hh:nn:ss', Now), AResult.RowCount])
+  else
+    LblInfo.Caption := Format('Resultado adicional (%d registro(s))', [AResult.RowCount]);
+
+  BtnCloseTab := TButton.Create(Tab);
+  BtnCloseTab.Parent := PnlBar;
+  BtnCloseTab.Caption := 'Fechar Aba';
+  BtnCloseTab.Width := 90;
+  BtnCloseTab.Height := 22;
+  BtnCloseTab.Top := 3;
+  BtnCloseTab.Left := PnlBar.Width - 96;
+  BtnCloseTab.Anchors := [akTop, akRight];
+  BtnCloseTab.Tag := PtrInt(Tab);
+  BtnCloseTab.OnClick := @btnCloseExtraTabClick;
+
+  Grid := TQueryResultGridFrame.Create(Tab);
+  Grid.Name := Format('ExtraGrid_%d_%d', [GetTickCount64 mod 100000, N]);
+  Grid.Parent := Tab;
+  Grid.Align := alClient;
+  Grid.SetResult(AResult, True, True);
+
+  if APinned then
+    pgBottom.ActivePage := Tab;
+end;
+
+procedure TSqlEditorFrame.btnPinResultClick(Sender: TObject);
+var
+  Cloned: TQueryResult;
+begin
+  if (FLastResult = nil) or (not FLastResult.HasResultSet) then
+    Exit;
+  Inc(FPinnedCounter);
+  Cloned := FLastResult.CloneSnapshot;
+  AddExtraResultTab(Format('Fixado %d (%d)', [FPinnedCounter, Cloned.RowCount]), Cloned, True);
+end;
+
+procedure TSqlEditorFrame.btnCloseExtraTabClick(Sender: TObject);
+var
+  Tab: TTabSheet;
+begin
+  if not (Sender is TButton) then
+    Exit;
+  Tab := TTabSheet(PtrInt(TButton(Sender).Tag));
+  if Tab <> nil then
+    Tab.Free;
 end;
 
 end.

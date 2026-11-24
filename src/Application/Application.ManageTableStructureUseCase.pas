@@ -122,6 +122,11 @@ type
       const ATableName, ATriggerName: string;
       out AMessage: string
     ): Boolean;
+    function DropTable(
+      const AProfile: TConnectionProfile;
+      const ATableName: string;
+      out AMessage: string
+    ): Boolean;
     function LoadTableData(
       const AProfile: TConnectionProfile;
       const ATableName, AWhereClause: string;
@@ -2760,6 +2765,33 @@ begin
       else
         AMessage := Format('Índice "%s" inativado com sucesso.', [Trim(AIndexName)]);
     end;
+  finally
+    Stmts.Free;
+  end;
+end;
+
+function TManageTableStructureUseCase.DropTable(
+  const AProfile: TConnectionProfile;
+  const ATableName: string;
+  out AMessage: string
+): Boolean;
+var
+  Stmts: TStringList;
+begin
+  Result := False;
+  AMessage := '';
+  if (AProfile = nil) or (Trim(ATableName) = '') then
+  begin
+    AMessage := 'Tabela ou conexão inválida.';
+    Exit;
+  end;
+
+  Stmts := TStringList.Create;
+  try
+    Stmts.Add('DROP TABLE ' + QuoteDbIdent(AProfile.DatabaseType, Trim(ATableName)));
+    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+    if Result then
+      AMessage := Format('Tabela "%s" excluída com sucesso.', [Trim(ATableName)]);
   finally
     Stmts.Free;
   end;

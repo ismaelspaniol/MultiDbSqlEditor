@@ -20,6 +20,7 @@ type
     function BuildMetadataSQL(const ADbType: TDatabaseType; const AKind: TSchemaObjectKind): string;
   public
     constructor Create(const AFactory: IDatabaseProviderFactory);
+    function ListPostgresDatabases(const AProfile: TConnectionProfile): TStringList;
     function ListObjects(const AProfile: TConnectionProfile; const AKind: TSchemaObjectKind): TStringList;
   end;
 
@@ -89,6 +90,50 @@ begin
       sokGenerators:
         Result := 'SELECT TRIM(RDB$GENERATOR_NAME) FROM RDB$GENERATORS WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 ORDER BY 1';
     end;
+  end;
+end;
+
+function TBrowseSchemaUseCase.ListPostgresDatabases(const AProfile: TConnectionProfile): TStringList;
+var
+  Provider: IDatabaseProvider;
+  Session: IDatabaseSession;
+  Res: TQueryResult;
+  I: Integer;
+  DbName: string;
+begin
+  Result := TStringList.Create;
+  if (AProfile = nil) or (AProfile.DatabaseType <> dtPostgreSQL) then
+    Exit;
+
+  Provider := FFactory.GetProvider(dtPostgreSQL);
+  Session := Provider.CreateSession(AProfile);
+  try
+    Session.Connect;
+    Res := Session.ExecuteSQL(
+      'SELECT datname FROM pg_database ' +
+      'WHERE NOT datistemplate AND datallowconn ' +
+      'ORDER BY datname',
+      False,
+      0
+    );
+    try
+      if not Res.Success then
+        raise Exception.Create(Res.MessageText);
+
+      if Res.HasResultSet then
+      begin
+        for I := 0 to Res.RowCount - 1 do
+        begin
+          DbName := Trim(Res.GetRow(I)[0].AsText);
+          if DbName <> '' then
+            Result.Add(DbName);
+        end;
+      end;
+    finally
+      Res.Free;
+    end;
+  finally
+    Session.Disconnect;
   end;
 end;
 

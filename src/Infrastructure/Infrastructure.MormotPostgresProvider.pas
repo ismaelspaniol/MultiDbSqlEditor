@@ -686,7 +686,7 @@ begin
 
   FProps := TSqlDBPostgresConnectionProperties.Create(
     ServerAddr,
-    RawUtf8(FProfile.Database),
+    RawUtf8(FProfile.EffectiveDatabase),
     RawUtf8(FProfile.Username),
     RawUtf8(FProfile.Password)
   );

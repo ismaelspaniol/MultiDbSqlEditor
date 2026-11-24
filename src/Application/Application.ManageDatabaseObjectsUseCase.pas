@@ -886,6 +886,7 @@ begin
   if AProfile.DatabaseType = dtPostgreSQL then
   begin
     case AKind of
+      sokTables: SQL := 'DROP TABLE ' + Ident;
       sokViews: SQL := 'DROP VIEW ' + Ident;
       sokProcedures: SQL := 'DROP FUNCTION ' + Ident;
       sokGenerators: SQL := 'DROP SEQUENCE ' + Ident;
@@ -896,6 +897,7 @@ begin
   else
   begin
     case AKind of
+      sokTables: SQL := 'DROP TABLE ' + Ident;
       sokViews: SQL := 'DROP VIEW ' + Ident;
       sokProcedures: SQL := 'DROP PROCEDURE ' + Ident;
       sokTriggers: SQL := 'DROP TRIGGER ' + Ident;
