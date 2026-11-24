@@ -132,8 +132,21 @@ type
     FExtraSelectStatements: TStringList;
     FExtraResultObjects: array of TQueryResult;
     FPinnedCounter: Integer;
+    lbConnSuggest: TListBox;
+    FIsUpdatingConnCombo: Boolean;
     FOnExecutionStateChanged: TExecutionStateChangedEvent;
     FOnOpenObject: TOpenDbObjectLinkEvent;
+    function FormatProfileComboCaption(const AProfile: TConnectionProfile): string;
+    procedure EnsureConnSuggestBox;
+    procedure UpdateConnSuggestList(const AFilter: string);
+    procedure HideConnSuggest(const ARestoreText: Boolean);
+    procedure ApplySelectedProfile(const AProfile: TConnectionProfile);
+    procedure cbConnectionDropDown(Sender: TObject);
+    procedure cbConnectionKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure cbConnectionExit(Sender: TObject);
+    procedure lbConnSuggestMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure lbConnSuggestKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure lbConnSuggestExit(Sender: TObject);
     procedure LogMessage(const AMsg: string);
     procedure UpdateTransactionUI;
     procedure UpdateGridFromResult;
@@ -217,6 +230,7 @@ type
 implementation
 
 uses
+  Math,
   Presentation.TabHelpers;
 
 {$R *.lfm}
@@ -271,6 +285,17 @@ begin
   FFactory := AFactory;
   FExecuteUseCase := AExecuteUseCase;
   FActiveProfileId := AInitialProfileId;
+  FIsUpdatingConnCombo := False;
+  cbConnection.Style := csDropDown;
+  cbConnection.AutoComplete := False;
+  cbConnection.AutoSelect := True;
+  cbConnection.DropDownCount := 16;
+  cbConnection.Width := 250;
+  cbConnection.TextHint := 'Pesquisar conexão...';
+  cbConnection.OnDropDown := @cbConnectionDropDown;
+  cbConnection.OnKeyDown := @cbConnectionKeyDown;
+  cbConnection.OnExit := @cbConnectionExit;
+  EnsureConnSuggestBox;
   FEditorSplitRatio := 0.45;
   FIsAdjustingSplit := False;
   FUpdatingToolbarSize := False;
@@ -392,6 +417,137 @@ begin
   UpdateToolbarLayout;
 end;
 
+function TSqlEditorFrame.FormatProfileComboCaption(const AProfile: TConnectionProfile): string;
+begin
+  if AProfile = nil then
+    Exit('');
+  if Trim(AProfile.Folder) <> '' then
+    Result := Format('%s [%s] (%s)', [AProfile.Name, Trim(AProfile.Folder), DatabaseTypeToStr(AProfile.DatabaseType)])
+  else
+    Result := Format('%s (%s)', [AProfile.Name, DatabaseTypeToStr(AProfile.DatabaseType)]);
+end;
+
+procedure TSqlEditorFrame.EnsureConnSuggestBox;
+begin
+  if lbConnSuggest <> nil then
+    Exit;
+
+  lbConnSuggest := TListBox.Create(Self);
+  lbConnSuggest.Parent := Self;
+  lbConnSuggest.Visible := False;
+  lbConnSuggest.TabStop := False;
+  lbConnSuggest.Font.Assign(cbConnection.Font);
+  lbConnSuggest.OnMouseDown := @lbConnSuggestMouseDown;
+  lbConnSuggest.OnKeyDown := @lbConnSuggestKeyDown;
+  lbConnSuggest.OnExit := @lbConnSuggestExit;
+end;
+
+procedure TSqlEditorFrame.HideConnSuggest(const ARestoreText: Boolean);
+var
+  I: Integer;
+begin
+  if lbConnSuggest <> nil then
+    lbConnSuggest.Visible := False;
+
+  if ARestoreText then
+  begin
+    FIsUpdatingConnCombo := True;
+    try
+      cbConnection.ItemIndex := -1;
+      for I := 0 to cbConnection.Items.Count - 1 do
+      begin
+        if (cbConnection.Items.Objects[I] <> nil) and
+           SameText(TConnectionProfile(cbConnection.Items.Objects[I]).Id, FActiveProfileId) then
+        begin
+          cbConnection.ItemIndex := I;
+          cbConnection.Text := cbConnection.Items[I];
+          Break;
+        end;
+      end;
+      if cbConnection.ItemIndex < 0 then
+        cbConnection.Text := '';
+    finally
+      FIsUpdatingConnCombo := False;
+    end;
+  end;
+end;
+
+procedure TSqlEditorFrame.cbConnectionDropDown(Sender: TObject);
+begin
+  if lbConnSuggest <> nil then
+    lbConnSuggest.Visible := False;
+end;
+
+procedure TSqlEditorFrame.UpdateConnSuggestList(const AFilter: string);
+var
+  Q, Haystack, CurText: string;
+  I, ItemH, MaxH, CurSel: Integer;
+  P: TConnectionProfile;
+  ScreenPt, ClientPt: TPoint;
+begin
+  EnsureConnSuggestBox;
+  if cbConnection.DroppedDown then
+  begin
+    CurText := cbConnection.Text;
+    CurSel := cbConnection.SelStart;
+    FIsUpdatingConnCombo := True;
+    try
+      cbConnection.DroppedDown := False;
+      if cbConnection.Text <> CurText then
+        cbConnection.Text := CurText;
+      cbConnection.SelStart := CurSel;
+      cbConnection.SelLength := 0;
+    finally
+      FIsUpdatingConnCombo := False;
+    end;
+  end;
+
+  Q := LowerCase(Trim(AFilter));
+  if Q = '' then
+  begin
+    lbConnSuggest.Visible := False;
+    Exit;
+  end;
+
+  lbConnSuggest.Items.BeginUpdate;
+  try
+    lbConnSuggest.Items.Clear;
+    for I := 0 to cbConnection.Items.Count - 1 do
+    begin
+      P := TConnectionProfile(cbConnection.Items.Objects[I]);
+      if P = nil then
+        Continue;
+      Haystack := LowerCase(
+        P.Name + ' ' + P.Folder + ' ' + P.Database + ' ' + P.Host + ' ' + DatabaseTypeToStr(P.DatabaseType)
+      );
+      if Pos(Q, Haystack) > 0 then
+        lbConnSuggest.Items.AddObject(cbConnection.Items[I], P);
+    end;
+  finally
+    lbConnSuggest.Items.EndUpdate;
+  end;
+
+  if lbConnSuggest.Items.Count = 0 then
+  begin
+    lbConnSuggest.Visible := False;
+    Exit;
+  end;
+
+  ScreenPt := cbConnection.ClientToScreen(Point(0, cbConnection.Height));
+  ClientPt := ScreenToClient(ScreenPt);
+  lbConnSuggest.Left := ClientPt.X;
+  lbConnSuggest.Top := ClientPt.Y + 1;
+  lbConnSuggest.Width := Max(cbConnection.Width, 340);
+  if lbConnSuggest.Left + lbConnSuggest.Width > ClientWidth - 4 then
+    lbConnSuggest.Width := Max(cbConnection.Width, ClientWidth - lbConnSuggest.Left - 4);
+  ItemH := 18;
+  MaxH := Min(12, lbConnSuggest.Items.Count) * ItemH + 6;
+  lbConnSuggest.Height := MaxH;
+  lbConnSuggest.ItemIndex := 0;
+  lbConnSuggest.Visible := True;
+  lbConnSuggest.BringToFront;
+end;
+
 procedure TSqlEditorFrame.RefreshConnections(const AConnections: TConnectionProfileList);
 var
   Item, Cloned: TConnectionProfile;
@@ -405,6 +561,7 @@ begin
   FreeAndNil(FProfiles);
   FProfiles := TConnectionProfileList.Create(True);
 
+  FIsUpdatingConnCombo := True;
   cbConnection.Items.BeginUpdate;
   try
     cbConnection.Items.Clear;
@@ -415,10 +572,7 @@ begin
       begin
         Cloned := Item.Clone;
         FProfiles.Add(Cloned);
-        Idx := cbConnection.Items.AddObject(
-          Format('%s [%s]', [Cloned.Name, DatabaseTypeToStr(Cloned.DatabaseType)]),
-          Cloned
-        );
+        Idx := cbConnection.Items.AddObject(FormatProfileComboCaption(Cloned), Cloned);
         if (TargetId <> '') and SameText(Cloned.Id, TargetId) then
           SelectedIdx := Idx;
       end;
@@ -428,16 +582,17 @@ begin
     begin
       Cloned := FOverrideProfile.Clone;
       FProfiles.Add(Cloned);
-      SelectedIdx := cbConnection.Items.AddObject(
-        Format('%s [%s]', [Cloned.Name, DatabaseTypeToStr(Cloned.DatabaseType)]),
-        Cloned
-      );
+      SelectedIdx := cbConnection.Items.AddObject(FormatProfileComboCaption(Cloned), Cloned);
     end;
 
     if (SelectedIdx = -1) and (cbConnection.Items.Count > 0) then
       SelectedIdx := 0;
 
     cbConnection.ItemIndex := SelectedIdx;
+    if (SelectedIdx >= 0) and (SelectedIdx < cbConnection.Items.Count) then
+      cbConnection.Text := cbConnection.Items[SelectedIdx]
+    else
+      cbConnection.Text := '';
     if SelectedProfile <> nil then
     begin
       FActiveProfileId := SelectedProfile.Id;
@@ -445,7 +600,9 @@ begin
     end;
   finally
     cbConnection.Items.EndUpdate;
+    FIsUpdatingConnCombo := False;
   end;
+  HideConnSuggest(False);
 end;
 
 procedure TSqlEditorFrame.SelectOrAddProfile(const AProfile: TConnectionProfile);
@@ -456,30 +613,35 @@ begin
   if AProfile = nil then
     Exit;
 
-  Idx := -1;
-  for I := 0 to cbConnection.Items.Count - 1 do
-  begin
-    if (cbConnection.Items.Objects[I] <> nil) and
-       SameText(TConnectionProfile(cbConnection.Items.Objects[I]).Id, AProfile.Id) then
+  FIsUpdatingConnCombo := True;
+  try
+    Idx := -1;
+    for I := 0 to cbConnection.Items.Count - 1 do
     begin
-      Idx := I;
-      Break;
+      if (cbConnection.Items.Objects[I] <> nil) and
+         SameText(TConnectionProfile(cbConnection.Items.Objects[I]).Id, AProfile.Id) then
+      begin
+        Idx := I;
+        Break;
+      end;
     end;
-  end;
 
-  if Idx = -1 then
-  begin
-    FreeAndNil(FOverrideProfile);
-    FOverrideProfile := AProfile.Clone;
-    Cloned := AProfile.Clone;
-    FProfiles.Add(Cloned);
-    Idx := cbConnection.Items.AddObject(
-      Format('%s [%s]', [Cloned.Name, DatabaseTypeToStr(Cloned.DatabaseType)]),
-      Cloned
-    );
-  end;
+    if Idx = -1 then
+    begin
+      FreeAndNil(FOverrideProfile);
+      FOverrideProfile := AProfile.Clone;
+      Cloned := AProfile.Clone;
+      FProfiles.Add(Cloned);
+      Idx := cbConnection.Items.AddObject(FormatProfileComboCaption(Cloned), Cloned);
+    end;
 
-  cbConnection.ItemIndex := Idx;
+    cbConnection.ItemIndex := Idx;
+    if (Idx >= 0) and (Idx < cbConnection.Items.Count) then
+      cbConnection.Text := cbConnection.Items[Idx];
+  finally
+    FIsUpdatingConnCombo := False;
+  end;
+  HideConnSuggest(False);
   FActiveProfileId := AProfile.Id;
   ApplyHighlighterForProfile(AProfile);
   UpdateTransactionUI;
@@ -494,10 +656,22 @@ begin
 end;
 
 function TSqlEditorFrame.SelectedProfile: TConnectionProfile;
+var
+  I: Integer;
 begin
   Result := nil;
   if (cbConnection.ItemIndex >= 0) and (cbConnection.ItemIndex < cbConnection.Items.Count) then
     Result := TConnectionProfile(cbConnection.Items.Objects[cbConnection.ItemIndex]);
+
+  if (Result = nil) and (FActiveProfileId <> '') then
+  begin
+    for I := 0 to cbConnection.Items.Count - 1 do
+    begin
+      if (cbConnection.Items.Objects[I] <> nil) and
+         SameText(TConnectionProfile(cbConnection.Items.Objects[I]).Id, FActiveProfileId) then
+        Exit(TConnectionProfile(cbConnection.Items.Objects[I]));
+    end;
+  end;
 end;
 
 procedure TSqlEditorFrame.ApplyHighlighterForProfile(const AProfile: TConnectionProfile);
@@ -524,14 +698,33 @@ begin
   end;
 end;
 
-procedure TSqlEditorFrame.cbConnectionChange(Sender: TObject);
+procedure TSqlEditorFrame.ApplySelectedProfile(const AProfile: TConnectionProfile);
 var
-  Profile: TConnectionProfile;
+  I: Integer;
 begin
-  if FIsExecuting then
+  if FIsExecuting or (AProfile = nil) then
     Exit;
-  Profile := SelectedProfile;
-  if (Profile <> nil) and SameText(Profile.Id, FActiveProfileId) then
+
+  FIsUpdatingConnCombo := True;
+  try
+    for I := 0 to cbConnection.Items.Count - 1 do
+    begin
+      if (cbConnection.Items.Objects[I] <> nil) and
+         SameText(TConnectionProfile(cbConnection.Items.Objects[I]).Id, AProfile.Id) then
+      begin
+        cbConnection.ItemIndex := I;
+        cbConnection.Text := cbConnection.Items[I];
+        Break;
+      end;
+    end;
+  finally
+    FIsUpdatingConnCombo := False;
+  end;
+
+  if lbConnSuggest <> nil then
+    lbConnSuggest.Visible := False;
+
+  if SameText(AProfile.Id, FActiveProfileId) then
     Exit;
 
   if FSession <> nil then
@@ -547,16 +740,139 @@ begin
 
   ClearMetadataCache;
 
-  if Profile <> nil then
-  begin
-    FActiveProfileId := Profile.Id;
-    ApplyHighlighterForProfile(Profile);
-    LogMessage('Conexão alterada para: ' + Profile.Name);
-  end
-  else
-    FActiveProfileId := '';
-
+  FActiveProfileId := AProfile.Id;
+  ApplyHighlighterForProfile(AProfile);
+  LogMessage('Conexão alterada para: ' + AProfile.Name);
   UpdateTransactionUI;
+end;
+
+procedure TSqlEditorFrame.cbConnectionChange(Sender: TObject);
+var
+  Idx: Integer;
+  Profile: TConnectionProfile;
+begin
+  if FIsUpdatingConnCombo or FIsExecuting then
+    Exit;
+
+  Idx := cbConnection.ItemIndex;
+  if (Idx >= 0) and (Idx < cbConnection.Items.Count) and
+     SameText(cbConnection.Text, cbConnection.Items[Idx]) then
+  begin
+    Profile := TConnectionProfile(cbConnection.Items.Objects[Idx]);
+    if Profile <> nil then
+      ApplySelectedProfile(Profile);
+    Exit;
+  end;
+
+  UpdateConnSuggestList(cbConnection.Text);
+end;
+
+procedure TSqlEditorFrame.cbConnectionKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+var
+  P: TConnectionProfile;
+  NewIdx: Integer;
+begin
+  if (lbConnSuggest <> nil) and lbConnSuggest.Visible and (lbConnSuggest.Items.Count > 0) then
+  begin
+    if Key = VK_DOWN then
+    begin
+      Key := 0;
+      NewIdx := lbConnSuggest.ItemIndex + 1;
+      if NewIdx >= lbConnSuggest.Items.Count then
+        NewIdx := 0;
+      lbConnSuggest.ItemIndex := NewIdx;
+      Exit;
+    end
+    else if Key = VK_UP then
+    begin
+      Key := 0;
+      NewIdx := lbConnSuggest.ItemIndex - 1;
+      if NewIdx < 0 then
+        NewIdx := lbConnSuggest.Items.Count - 1;
+      lbConnSuggest.ItemIndex := NewIdx;
+      Exit;
+    end
+    else if Key = VK_RETURN then
+    begin
+      Key := 0;
+      if lbConnSuggest.ItemIndex < 0 then
+        lbConnSuggest.ItemIndex := 0;
+      if (lbConnSuggest.ItemIndex >= 0) and (lbConnSuggest.ItemIndex < lbConnSuggest.Items.Count) then
+      begin
+        P := TConnectionProfile(lbConnSuggest.Items.Objects[lbConnSuggest.ItemIndex]);
+        ApplySelectedProfile(P);
+        if SynEdit1.CanFocus then
+          SynEdit1.SetFocus;
+      end;
+      Exit;
+    end
+    else if Key = VK_ESCAPE then
+    begin
+      Key := 0;
+      HideConnSuggest(True);
+      Exit;
+    end;
+  end
+  else if Key = VK_ESCAPE then
+  begin
+    Key := 0;
+    HideConnSuggest(True);
+  end;
+end;
+
+procedure TSqlEditorFrame.cbConnectionExit(Sender: TObject);
+begin
+  if (lbConnSuggest <> nil) and lbConnSuggest.Focused then
+    Exit;
+  HideConnSuggest(True);
+end;
+
+procedure TSqlEditorFrame.lbConnSuggestMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+var
+  Idx: Integer;
+  P: TConnectionProfile;
+begin
+  if Button <> mbLeft then
+    Exit;
+  Idx := lbConnSuggest.ItemAtPos(Point(X, Y), True);
+  if (Idx >= 0) and (Idx < lbConnSuggest.Items.Count) then
+  begin
+    lbConnSuggest.ItemIndex := Idx;
+    P := TConnectionProfile(lbConnSuggest.Items.Objects[Idx]);
+    ApplySelectedProfile(P);
+    if SynEdit1.CanFocus then
+      SynEdit1.SetFocus;
+  end;
+end;
+
+procedure TSqlEditorFrame.lbConnSuggestKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+var
+  P: TConnectionProfile;
+begin
+  if Key = VK_RETURN then
+  begin
+    Key := 0;
+    if (lbConnSuggest.ItemIndex >= 0) and (lbConnSuggest.ItemIndex < lbConnSuggest.Items.Count) then
+    begin
+      P := TConnectionProfile(lbConnSuggest.Items.Objects[lbConnSuggest.ItemIndex]);
+      ApplySelectedProfile(P);
+      if SynEdit1.CanFocus then
+        SynEdit1.SetFocus;
+    end;
+  end
+  else if Key = VK_ESCAPE then
+  begin
+    Key := 0;
+    HideConnSuggest(True);
+    if cbConnection.CanFocus then
+      cbConnection.SetFocus;
+  end;
+end;
+
+procedure TSqlEditorFrame.lbConnSuggestExit(Sender: TObject);
+begin
+  if not cbConnection.Focused then
+    HideConnSuggest(True);
 end;
 
 procedure TSqlEditorFrame.LogMessage(const AMsg: string);

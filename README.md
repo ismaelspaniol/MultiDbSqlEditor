@@ -40,6 +40,7 @@ IDE e editor SQL multi-banco de alto desempenho inspirado no **IBExpert**, desen
 
 ### 1. Gerenciador de Conexões e Segurança por Ambiente
 - **Cadastro completo (`connections.json`)** com suporte a *parser* automático de connection strings Firebird (`host/porta:caminho.fdb`), teste de conectividade, duplicação, ordenação alfabética e reordenação por *drag-and-drop* ou teclado (`Alt+↑` / `Alt+↓`).
+- **Organização em Pastas (`connection_folders.json`):** crie pastas personalizadas (com conexões de qualquer SGBD misturadas livremente) pelo botão **+ Pasta** ou menu de contexto, escolha/digite a pasta diretamente no cadastro da conexão, mova conexões arrastando-as (*drag-and-drop*) para dentro de pastas ou para a raiz e renomeie/exclua pastas sem perder conexões.
 - **Conexão PostgreSQL sem nome de banco (nível de servidor):** ao deixar o campo *Database* em branco no PostgreSQL, a conexão conecta ao banco de manutenção padrão (`postgres`) e permite expandir a árvore para visualizar e operar em **todos os bancos registrados** no servidor.
 - **Seletor de Schema no PostgreSQL:** botão *Listar* no cadastro ou menu de contexto *Selecionar Schema* diretamente na árvore.
 - **Cor de Alerta por Ambiente e Proteção de Produção:**
@@ -48,7 +49,7 @@ IDE e editor SQL multi-banco de alto desempenho inspirado no **IBExpert**, desen
   - Em conexões marcadas como **Produção**, comandos destrutivos (`DROP`, `TRUNCATE`, `DELETE` ou `UPDATE` sem cláusula `WHERE`) exigem confirmação explícita antes da execução.
 
 ### 2. Explorador de Objetos (Árvore Lateral)
-- Organização agrupada por SGBD (**Firebird**, **PostgreSQL**, **MariaDB**) com nós expansíveis para **Bancos** (no PostgreSQL em nível de servidor), **Tabelas** (exibindo tamanho estimado em B/KB/MB/GB), **Views**, **Procedures / Functions**, **Triggers** e **Generators / Sequences**.
+- Organização livre por **Pastas** ou diretamente na raiz (com indicador `[FB]`, `[PG]`, `[MariaDB]` em cada conexão) e nós expansíveis para **Bancos** (no PostgreSQL em nível de servidor), **Tabelas** (exibindo tamanho estimado em B/KB/MB/GB), **Views**, **Procedures / Functions**, **Triggers** e **Generators / Sequences**.
 - **Filtro rápido** na árvore para localizar conexões, bancos ou objetos instantaneamente.
 - **Menu de contexto completo:** abrir nova aba SQL, executar script, abrir monitor, comparar bases, manutenção, editar/ver DDL, visualizar dados, criar/excluir objetos, atualizar categoria e desconectar sessões ativas.
 - **Exclusão de tabela com dupla confirmação (1/2 e 2/2):** previne exclusões acidentais (`DROP TABLE`) tanto pela árvore quanto pelo editor de tabelas ou tela de importação.

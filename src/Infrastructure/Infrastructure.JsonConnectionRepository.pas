@@ -19,8 +19,11 @@ type
   TJsonConnectionRepository = class(TInterfacedObject, IConnectionRepository)
   private
     FFilePath: string;
+    FFoldersFilePath: string;
     function LoadJsonArray: TJSONArray;
     procedure SaveJsonArray(const AArray: TJSONArray);
+    function LoadFoldersJsonObject: TJSONObject;
+    procedure SaveFoldersJsonObject(const AObj: TJSONObject);
     function ProfileToJson(const AProfile: TConnectionProfile): TJSONObject;
     function JsonToProfile(const AObj: TJSONObject): TConnectionProfile;
     function EncodeSecret(const APlain: string): string;
@@ -32,6 +35,10 @@ type
     procedure Save(const AProfile: TConnectionProfile);
     procedure Delete(const AId: string);
     procedure Reorder(const AOrderedIds: TStrings);
+    procedure GetFolders(const ATarget: TStrings);
+    procedure AddFolder(const AFolderName: string);
+    procedure RenameFolder(const AOldName, ANewName: string);
+    procedure DeleteFolder(const AFolderName: string);
   end;
 
 implementation
@@ -43,6 +50,7 @@ begin
     FFilePath := AFilePath
   else
     FFilePath := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0))) + 'connections.json';
+  FFoldersFilePath := IncludeTrailingPathDelimiter(ExtractFilePath(FFilePath)) + 'connection_folders.json';
 end;
 
 function TJsonConnectionRepository.EncodeSecret(const APlain: string): string;
@@ -132,6 +140,7 @@ begin
   Result.Add('clientLibraryPath', AProfile.ClientLibraryPath);
   Result.Add('firebirdVersion', FirebirdVersionToStr(AProfile.FirebirdVersion));
   Result.Add('environmentKind', AProfile.EnvironmentKind);
+  Result.Add('folder', Trim(AProfile.Folder));
 end;
 
 function TJsonConnectionRepository.JsonToProfile(const AObj: TJSONObject): TConnectionProfile;
@@ -151,6 +160,7 @@ begin
   Result.ClientLibraryPath := AObj.Get('clientLibraryPath', '');
   Result.FirebirdVersion := StrToFirebirdVersion(AObj.Get('firebirdVersion', 'Auto'));
   Result.EnvironmentKind := AObj.Get('environmentKind', 'Padrao');
+  Result.Folder := Trim(AObj.Get('folder', ''));
 end;
 
 function TJsonConnectionRepository.GetAll: TConnectionProfileList;
@@ -220,6 +230,8 @@ begin
     end;
 
     SaveJsonArray(Arr);
+    if Trim(AProfile.Folder) <> '' then
+      AddFolder(Trim(AProfile.Folder));
   finally
     Arr.Free;
   end;
@@ -297,6 +309,306 @@ begin
     end;
   finally
     Arr.Free;
+  end;
+end;
+
+function TJsonConnectionRepository.LoadFoldersJsonObject: TJSONObject;
+var
+  SL: TStringList;
+  Data: TJSONData;
+begin
+  if not FileExists(FFoldersFilePath) then
+  begin
+    Result := TJSONObject.Create;
+    Exit;
+  end;
+
+  SL := TStringList.Create;
+  try
+    SL.LoadFromFile(FFoldersFilePath, TEncoding.UTF8);
+    if Trim(SL.Text) = '' then
+    begin
+      Result := TJSONObject.Create;
+      Exit;
+    end;
+    try
+      Data := GetJSON(SL.Text);
+      if Data is TJSONObject then
+        Result := TJSONObject(Data)
+      else
+      begin
+        Data.Free;
+        Result := TJSONObject.Create;
+      end;
+    except
+      Result := TJSONObject.Create;
+    end;
+  finally
+    SL.Free;
+  end;
+end;
+
+procedure TJsonConnectionRepository.SaveFoldersJsonObject(const AObj: TJSONObject);
+var
+  SL: TStringList;
+  Dir: string;
+begin
+  Dir := ExtractFileDir(FFoldersFilePath);
+  if (Dir <> '') and (not DirectoryExists(Dir)) then
+    ForceDirectories(Dir);
+
+  SL := TStringList.Create;
+  try
+    SL.Text := AObj.FormatJSON;
+    SL.SaveToFile(FFoldersFilePath, TEncoding.UTF8);
+  finally
+    SL.Free;
+  end;
+end;
+
+procedure TJsonConnectionRepository.GetFolders(const ATarget: TStrings);
+var
+  RootObj: TJSONObject;
+  Arr: TJSONArray;
+  FolderName: string;
+  I, J, K: Integer;
+  ExistsInTarget: Boolean;
+  Profiles: TConnectionProfileList;
+  Profile: TConnectionProfile;
+begin
+  if ATarget = nil then
+    Exit;
+  ATarget.Clear;
+
+  RootObj := LoadFoldersJsonObject;
+  try
+    for K := 0 to RootObj.Count - 1 do
+    begin
+      if RootObj.Items[K] is TJSONArray then
+      begin
+        Arr := TJSONArray(RootObj.Items[K]);
+        for I := 0 to Arr.Count - 1 do
+        begin
+          FolderName := Trim(Arr.Strings[I]);
+          if FolderName = '' then
+            Continue;
+          ExistsInTarget := False;
+          for J := 0 to ATarget.Count - 1 do
+            if SameText(ATarget[J], FolderName) then
+            begin
+              ExistsInTarget := True;
+              Break;
+            end;
+          if not ExistsInTarget then
+            ATarget.Add(FolderName);
+        end;
+      end;
+    end;
+  finally
+    RootObj.Free;
+  end;
+
+  { Também garante que pastas referenciadas em connections.json apareçam }
+  Profiles := GetAll;
+  try
+    for Profile in Profiles do
+    begin
+      if Trim(Profile.Folder) <> '' then
+      begin
+        FolderName := Trim(Profile.Folder);
+        ExistsInTarget := False;
+        for J := 0 to ATarget.Count - 1 do
+          if SameText(ATarget[J], FolderName) then
+          begin
+            ExistsInTarget := True;
+            Break;
+          end;
+        if not ExistsInTarget then
+          ATarget.Add(FolderName);
+      end;
+    end;
+  finally
+    Profiles.Free;
+  end;
+end;
+
+procedure TJsonConnectionRepository.AddFolder(const AFolderName: string);
+const
+  KEY_GLOBAL = 'folders';
+var
+  CleanName: string;
+  RootObj: TJSONObject;
+  Arr: TJSONArray;
+  I, K: Integer;
+begin
+  CleanName := Trim(AFolderName);
+  if CleanName = '' then
+    Exit;
+
+  RootObj := LoadFoldersJsonObject;
+  try
+    for K := 0 to RootObj.Count - 1 do
+      if RootObj.Items[K] is TJSONArray then
+      begin
+        Arr := TJSONArray(RootObj.Items[K]);
+        for I := 0 to Arr.Count - 1 do
+          if SameText(Trim(Arr.Strings[I]), CleanName) then
+            Exit;
+      end;
+
+    if not RootObj.Find(KEY_GLOBAL, Arr) then
+    begin
+      Arr := TJSONArray.Create;
+      RootObj.Add(KEY_GLOBAL, Arr);
+    end;
+
+    Arr.Add(CleanName);
+    SaveFoldersJsonObject(RootObj);
+  finally
+    RootObj.Free;
+  end;
+end;
+
+procedure TJsonConnectionRepository.RenameFolder(const AOldName, ANewName: string);
+const
+  KEY_GLOBAL = 'folders';
+var
+  CleanOld, CleanNew: string;
+  RootObj, ConnObj: TJSONObject;
+  FoldersArr, ConnsArr: TJSONArray;
+  I, K, DuplicateIdx: Integer;
+  ChangedFolders, ChangedConns: Boolean;
+begin
+  CleanOld := Trim(AOldName);
+  CleanNew := Trim(ANewName);
+  if (CleanOld = '') or (CleanNew = '') then
+    Exit;
+
+  RootObj := LoadFoldersJsonObject;
+  try
+    ChangedFolders := False;
+    DuplicateIdx := -1;
+
+    for K := 0 to RootObj.Count - 1 do
+      if RootObj.Items[K] is TJSONArray then
+      begin
+        FoldersArr := TJSONArray(RootObj.Items[K]);
+        for I := 0 to FoldersArr.Count - 1 do
+          if SameText(Trim(FoldersArr.Strings[I]), CleanNew) and (not SameText(CleanOld, CleanNew)) then
+            DuplicateIdx := I;
+      end;
+
+    for K := 0 to RootObj.Count - 1 do
+      if RootObj.Items[K] is TJSONArray then
+      begin
+        FoldersArr := TJSONArray(RootObj.Items[K]);
+        for I := FoldersArr.Count - 1 downto 0 do
+        begin
+          if SameText(Trim(FoldersArr.Strings[I]), CleanOld) then
+          begin
+            if DuplicateIdx >= 0 then
+              FoldersArr.Delete(I)
+            else
+              FoldersArr.Strings[I] := CleanNew;
+            ChangedFolders := True;
+          end;
+        end;
+      end;
+
+    if (not ChangedFolders) and (DuplicateIdx < 0) then
+    begin
+      if not RootObj.Find(KEY_GLOBAL, FoldersArr) then
+      begin
+        FoldersArr := TJSONArray.Create;
+        RootObj.Add(KEY_GLOBAL, FoldersArr);
+      end;
+      FoldersArr.Add(CleanNew);
+      ChangedFolders := True;
+    end;
+
+    if ChangedFolders then
+      SaveFoldersJsonObject(RootObj);
+  finally
+    RootObj.Free;
+  end;
+
+  ChangedConns := False;
+  ConnsArr := LoadJsonArray;
+  try
+    for I := 0 to ConnsArr.Count - 1 do
+    begin
+      if ConnsArr.Items[I] is TJSONObject then
+      begin
+        ConnObj := TJSONObject(ConnsArr.Items[I]);
+        if SameText(Trim(ConnObj.Get('folder', '')), CleanOld) then
+        begin
+          ConnObj.Strings['folder'] := CleanNew;
+          ChangedConns := True;
+        end;
+      end;
+    end;
+    if ChangedConns then
+      SaveJsonArray(ConnsArr);
+  finally
+    ConnsArr.Free;
+  end;
+end;
+
+procedure TJsonConnectionRepository.DeleteFolder(const AFolderName: string);
+var
+  CleanName: string;
+  RootObj, ConnObj: TJSONObject;
+  FoldersArr, ConnsArr: TJSONArray;
+  I, K: Integer;
+  ChangedFolders, ChangedConns: Boolean;
+begin
+  CleanName := Trim(AFolderName);
+  if CleanName = '' then
+    Exit;
+
+  RootObj := LoadFoldersJsonObject;
+  try
+    ChangedFolders := False;
+    for K := 0 to RootObj.Count - 1 do
+    begin
+      if RootObj.Items[K] is TJSONArray then
+      begin
+        FoldersArr := TJSONArray(RootObj.Items[K]);
+        for I := FoldersArr.Count - 1 downto 0 do
+        begin
+          if SameText(Trim(FoldersArr.Strings[I]), CleanName) then
+          begin
+            FoldersArr.Delete(I);
+            ChangedFolders := True;
+          end;
+        end;
+      end;
+    end;
+    if ChangedFolders then
+      SaveFoldersJsonObject(RootObj);
+  finally
+    RootObj.Free;
+  end;
+
+  ChangedConns := False;
+  ConnsArr := LoadJsonArray;
+  try
+    for I := 0 to ConnsArr.Count - 1 do
+    begin
+      if ConnsArr.Items[I] is TJSONObject then
+      begin
+        ConnObj := TJSONObject(ConnsArr.Items[I]);
+        if SameText(Trim(ConnObj.Get('folder', '')), CleanName) then
+        begin
+          ConnObj.Strings['folder'] := '';
+          ChangedConns := True;
+        end;
+      end;
+    end;
+    if ChangedConns then
+      SaveJsonArray(ConnsArr);
+  finally
+    ConnsArr.Free;
   end;
 end;
 

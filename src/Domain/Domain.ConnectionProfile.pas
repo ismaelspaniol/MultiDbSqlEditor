@@ -26,6 +26,7 @@ type
     FClientLibraryPath: string;
     FFirebirdVersion: TFirebirdVersion;
     FEnvironmentKind: string;
+    FFolder: string;
   public
     constructor Create;
     function Clone: TConnectionProfile;
@@ -60,6 +61,7 @@ type
     property ClientLibraryPath: string read FClientLibraryPath write FClientLibraryPath;
     property FirebirdVersion: TFirebirdVersion read FFirebirdVersion write FFirebirdVersion;
     property EnvironmentKind: string read FEnvironmentKind write FEnvironmentKind;
+    property Folder: string read FFolder write FFolder;
   end;
 
 implementation
@@ -74,6 +76,7 @@ begin
   FSchema := 'public';
   FFirebirdVersion := fvAuto;
   FEnvironmentKind := 'Padrao';
+  FFolder := '';
 end;
 
 function TConnectionProfile.IsProduction: Boolean;
@@ -136,6 +139,7 @@ begin
   Result.ClientLibraryPath := FClientLibraryPath;
   Result.FirebirdVersion := FFirebirdVersion;
   Result.EnvironmentKind := FEnvironmentKind;
+  Result.Folder := FFolder;
 end;
 
 procedure TConnectionProfile.Validate;

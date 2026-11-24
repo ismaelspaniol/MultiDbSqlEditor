@@ -21,6 +21,10 @@ type
     procedure Save(const AProfile: TConnectionProfile);
     procedure Delete(const AId: string);
     procedure Reorder(const AOrderedIds: TStrings);
+    procedure GetFolders(const ATarget: TStrings);
+    procedure AddFolder(const AFolderName: string);
+    procedure RenameFolder(const AOldName, ANewName: string);
+    procedure DeleteFolder(const AFolderName: string);
   end;
 
 implementation
@@ -68,6 +72,45 @@ procedure TManageConnectionsUseCase.Reorder(const AOrderedIds: TStrings);
 begin
   if AOrderedIds <> nil then
     FRepository.Reorder(AOrderedIds);
+end;
+
+procedure TManageConnectionsUseCase.GetFolders(const ATarget: TStrings);
+begin
+  if ATarget <> nil then
+    FRepository.GetFolders(ATarget);
+end;
+
+procedure TManageConnectionsUseCase.AddFolder(const AFolderName: string);
+var
+  CleanName: string;
+begin
+  CleanName := Trim(AFolderName);
+  if CleanName = '' then
+    raise Exception.Create('O nome da pasta não pode ficar em branco.');
+  FRepository.AddFolder(CleanName);
+end;
+
+procedure TManageConnectionsUseCase.RenameFolder(const AOldName, ANewName: string);
+var
+  CleanOld, CleanNew: string;
+begin
+  CleanOld := Trim(AOldName);
+  CleanNew := Trim(ANewName);
+  if CleanOld = '' then
+    raise Exception.Create('A pasta de origem é obrigatória.');
+  if CleanNew = '' then
+    raise Exception.Create('O novo nome da pasta não pode ficar em branco.');
+  FRepository.RenameFolder(CleanOld, CleanNew);
+end;
+
+procedure TManageConnectionsUseCase.DeleteFolder(const AFolderName: string);
+var
+  CleanName: string;
+begin
+  CleanName := Trim(AFolderName);
+  if CleanName = '' then
+    Exit;
+  FRepository.DeleteFolder(CleanName);
 end;
 
 end.

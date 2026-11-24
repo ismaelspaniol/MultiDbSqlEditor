@@ -8,7 +8,8 @@ uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
-  Application.TestConnectionUseCase;
+  Application.TestConnectionUseCase,
+  Application.ManageConnectionsUseCase;
 
 type
   { TConnectionForm }
@@ -59,10 +60,14 @@ type
   private
     FProfile: TConnectionProfile;
     FTestUseCase: TTestConnectionUseCase;
+    FManageUseCase: TManageConnectionsUseCase;
     FIsAutoFilling: Boolean;
     lblEnvironment: TLabel;
     cbEnvironment: TComboBox;
+    lblFolder: TLabel;
+    cbFolder: TComboBox;
     procedure EnsureEnvironmentControls;
+    procedure RefreshFolderItems;
     procedure TryAutoParseConnectionString(const AText: string);
     procedure UpdateFieldsForDatabaseType;
     procedure LoadFromProfile(const AProfile: TConnectionProfile);
@@ -70,7 +75,8 @@ type
   public
     class function Execute(
       const AProfile: TConnectionProfile;
-      const ATestUseCase: TTestConnectionUseCase
+      const ATestUseCase: TTestConnectionUseCase;
+      const AManageUseCase: TManageConnectionsUseCase = nil
     ): Boolean;
   end;
 
@@ -80,7 +86,8 @@ implementation
 
 class function TConnectionForm.Execute(
   const AProfile: TConnectionProfile;
-  const ATestUseCase: TTestConnectionUseCase
+  const ATestUseCase: TTestConnectionUseCase;
+  const AManageUseCase: TManageConnectionsUseCase
 ): Boolean;
 var
   Frm: TConnectionForm;
@@ -89,6 +96,7 @@ begin
   try
     Frm.FProfile := AProfile;
     Frm.FTestUseCase := ATestUseCase;
+    Frm.FManageUseCase := AManageUseCase;
     Frm.LoadFromProfile(AProfile);
     Result := Frm.ShowModal = mrOk;
     if Result then
@@ -100,27 +108,69 @@ end;
 
 procedure TConnectionForm.EnsureEnvironmentControls;
 begin
-  if cbEnvironment <> nil then
+  if cbEnvironment = nil then
+  begin
+    lblEnvironment := TLabel.Create(Self);
+    lblEnvironment.Parent := pnlContent;
+    lblEnvironment.Left := 0;
+    lblEnvironment.Top := 306;
+    lblEnvironment.Caption := 'Ambiente / Cor de Alerta:';
+
+    cbEnvironment := TComboBox.Create(Self);
+    cbEnvironment.Parent := pnlContent;
+    cbEnvironment.Left := 0;
+    cbEnvironment.Top := 324;
+    cbEnvironment.Width := pnlContent.ClientWidth;
+    cbEnvironment.Anchors := [akTop, akLeft, akRight];
+    cbEnvironment.Style := csDropDownList;
+    cbEnvironment.Items.Add('Padrão (Sem cor)');
+    cbEnvironment.Items.Add('Desenvolvimento (Verde)');
+    cbEnvironment.Items.Add('Homologação (Amarelo)');
+    cbEnvironment.Items.Add('Produção (Vermelho + Alerta de Segurança)');
+    cbEnvironment.ItemIndex := 0;
+  end;
+
+  if cbFolder = nil then
+  begin
+    lblFolder := TLabel.Create(Self);
+    lblFolder.Parent := pnlContent;
+    lblFolder.Left := 0;
+    lblFolder.Top := 356;
+    lblFolder.Caption := 'Pasta / Grupo (opcional — escolha existente ou digite um novo nome):';
+
+    cbFolder := TComboBox.Create(Self);
+    cbFolder.Parent := pnlContent;
+    cbFolder.Left := 0;
+    cbFolder.Top := 374;
+    cbFolder.Width := pnlContent.ClientWidth;
+    cbFolder.Anchors := [akTop, akLeft, akRight];
+    cbFolder.Style := csDropDown;
+    cbFolder.Text := '';
+
+    if Constraints.MinHeight < 495 then
+      Constraints.MinHeight := 495;
+    if Height < 520 then
+      Height := 520;
+  end;
+end;
+
+procedure TConnectionForm.RefreshFolderItems;
+var
+  Folders: TStringList;
+  CurText: string;
+begin
+  if (cbFolder = nil) or (FManageUseCase = nil) then
     Exit;
 
-  lblEnvironment := TLabel.Create(Self);
-  lblEnvironment.Parent := pnlContent;
-  lblEnvironment.Left := 0;
-  lblEnvironment.Top := 306;
-  lblEnvironment.Caption := 'Ambiente / Cor de Alerta:';
-
-  cbEnvironment := TComboBox.Create(Self);
-  cbEnvironment.Parent := pnlContent;
-  cbEnvironment.Left := 0;
-  cbEnvironment.Top := 324;
-  cbEnvironment.Width := pnlContent.ClientWidth;
-  cbEnvironment.Anchors := [akTop, akLeft, akRight];
-  cbEnvironment.Style := csDropDownList;
-  cbEnvironment.Items.Add('Padrão (Sem cor)');
-  cbEnvironment.Items.Add('Desenvolvimento (Verde)');
-  cbEnvironment.Items.Add('Homologação (Amarelo)');
-  cbEnvironment.Items.Add('Produção (Vermelho + Alerta de Segurança)');
-  cbEnvironment.ItemIndex := 0;
+  CurText := cbFolder.Text;
+  Folders := TStringList.Create;
+  try
+    FManageUseCase.GetFolders(Folders);
+    cbFolder.Items.Assign(Folders);
+    cbFolder.Text := CurText;
+  finally
+    Folders.Free;
+  end;
 end;
 
 procedure TConnectionForm.LoadFromProfile(const AProfile: TConnectionProfile);
@@ -167,6 +217,9 @@ begin
       else
         cbEnvironment.ItemIndex := 0;
     end;
+    RefreshFolderItems;
+    if cbFolder <> nil then
+      cbFolder.Text := Trim(AProfile.Folder);
     UpdateFieldsForDatabaseType;
   finally
     FIsAutoFilling := False;
@@ -211,6 +264,8 @@ begin
       AProfile.EnvironmentKind := 'Padrao';
     end;
   end;
+  if cbFolder <> nil then
+    AProfile.Folder := Trim(cbFolder.Text);
 end;
 
 procedure TConnectionForm.UpdateFieldsForDatabaseType;

@@ -1040,6 +1040,7 @@ begin
     '1. GERENCIADOR DE CONEXÕES E SEGURANÇA POR AMBIENTE' + LineEnding +
     '====================================================' + LineEnding + LineEnding +
     '• Perfis salvos em connections.json com teste de conectividade, duplicação, ordenação e reordenação (drag-and-drop ou Alt+Seta).' + LineEnding +
+    '• Organização por Pastas (connection_folders.json): crie pastas livres (+ Pasta ou menu de contexto) agrupando conexões de Firebird, PostgreSQL e MariaDB juntas, defina ou digite a pasta no cadastro e arraste conexões entre pastas ou para a raiz.' + LineEnding +
     '• Parser automático de connection strings Firebird (ex.: 127.0.0.1/3055:D:\dados\banco.fdb).' + LineEnding +
     '• PostgreSQL sem nome de banco (nível de servidor): ao deixar o campo Database em branco no PostgreSQL, o editor conecta ao banco padrão "postgres" e permite expandir a árvore para visualizar e trabalhar em todos os bancos registrados no servidor.' + LineEnding +
     '• Seletor de Schema (PostgreSQL): botão "Listar" no cadastro ou clique direito -> "Selecionar Schema" na árvore.' + LineEnding +
@@ -1051,7 +1052,7 @@ begin
     '2. Explorador de Objetos (Árvore Lateral)',
     '2. EXPLORADOR DE OBJETOS' + LineEnding +
     '========================' + LineEnding + LineEnding +
-    '• Agrupamento por SGBD (Firebird, PostgreSQL, MariaDB) com nós expansíveis para Bancos (PostgreSQL nível servidor), Tabelas (exibindo tamanho estimado), Views, Procedures/Functions, Triggers e Generators/Sequences.' + LineEnding +
+    '• Organização livre por Pastas ou na raiz (com identificação [FB], [PG], [MariaDB] em cada conexão) e nós expansíveis para Bancos (PostgreSQL nível servidor), Tabelas (exibindo tamanho estimado), Views, Procedures/Functions, Triggers e Generators/Sequences.' + LineEnding +
     '• Filtro rápido no topo da árvore para localizar conexões, bancos ou objetos instantaneamente.' + LineEnding +
     '• Menu de contexto completo: Nova Aba SQL, Script Executive, Monitor, Comparar Bases, Manutenção, Buscar nos Metadados, Gerenciador de Índices, Importar Dados, Editar/Ver DDL, Ver Dados, Criar/Excluir objeto, Desconectar sessões.' + LineEnding +
     '• Exclusão de tabela com dupla confirmação (1/2 e 2/2) para evitar DROP TABLE acidental.'

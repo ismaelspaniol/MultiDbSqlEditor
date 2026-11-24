@@ -43,11 +43,13 @@ uses
   Presentation.DataImportForm;
 
 type
-  TExplorerNodeKind = (enkGroup, enkConnection, enkDatabase, enkCategory, enkObject);
+  TExplorerNodeKind = (enkGroup, enkFolder, enkConnection, enkDatabase, enkCategory, enkObject);
 
   TExplorerNodeData = class
   public
     Kind: TExplorerNodeKind;
+    DatabaseType: TDatabaseType;
+    FolderName: string;
     Profile: TConnectionProfile;
     Category: TSchemaObjectKind;
     ObjectName: string;
@@ -220,14 +222,31 @@ type
     miConnImportData: TMenuItem;
     miToolAbout: TMenuItem;
     pnlBrandHeader: TPanel;
+    btnNewFolder: TButton;
+    miNewFolder: TMenuItem;
+    miNewConnInFolder: TMenuItem;
+    miRenameFolder: TMenuItem;
+    miDeleteFolder: TMenuItem;
+    miMoveToFolder: TMenuItem;
+    miMenuNewFolder: TMenuItem;
     procedure miToolMetadataSearchClick(Sender: TObject);
     procedure miToolIndexManagerClick(Sender: TObject);
     procedure miToolImportDataClick(Sender: TObject);
     procedure miToolDocsClick(Sender: TObject);
+    procedure miNewFolderClick(Sender: TObject);
+    procedure miNewConnInFolderClick(Sender: TObject);
+    procedure miRenameFolderClick(Sender: TObject);
+    procedure miDeleteFolderClick(Sender: TObject);
+    procedure miMoveToFolderClick(Sender: TObject);
     procedure ApplyVisualTheme;
     procedure HandleOpenSqlFromHistory(const AProfileId, ASqlText: string);
     procedure InitializeDependencies;
-    procedure RefreshConnectionsTree(const ASelectProfileId: string = '');
+    procedure RefreshConnectionsTree(
+      const ASelectProfileId: string = '';
+      const ASelectFolderName: string = ''
+    );
+    procedure UpdateFolderCaptions;
+    function SelectedFolderNode: TTreeNode;
     procedure ApplyTreeFilter;
     procedure RefreshOpenTabsConnections;
     procedure RestoreWorkspace;
@@ -286,7 +305,9 @@ type
       const AKind: TExplorerNodeKind;
       const AProfile: TConnectionProfile = nil;
       const ACategory: TSchemaObjectKind = sokTables;
-      const AObjectName: string = ''
+      const AObjectName: string = '';
+      const ADbType: TDatabaseType = dtFirebird;
+      const AFolderName: string = ''
     ): TExplorerNodeData;
     function SelectedNodeData: TExplorerNodeData;
     function SelectedConnectionNode: TTreeNode;
@@ -382,6 +403,54 @@ begin
   miConnImportData.Caption := 'Importar Dados (Excel / CSV / TXT)...';
   miConnImportData.OnClick := @miToolImportDataClick;
   pmConnections.Items.Insert(pmConnections.Items.IndexOf(miConnIndexManager) + 1, miConnImportData);
+
+  if pnlConnOrder <> nil then
+  begin
+    pnlConnOrder.ChildSizing.ControlsPerLine := 4;
+    btnNewFolder := TButton.Create(Self);
+    btnNewFolder.Parent := pnlConnOrder;
+    btnNewFolder.Caption := '+ Pasta';
+    btnNewFolder.Hint := 'Criar nova pasta para organizar conexões';
+    btnNewFolder.ParentShowHint := False;
+    btnNewFolder.ShowHint := True;
+    btnNewFolder.AutoSize := True;
+    btnNewFolder.Constraints.MinHeight := 26;
+    btnNewFolder.OnClick := @miNewFolderClick;
+  end;
+
+  if miMenuNewConn.Parent <> nil then
+  begin
+    miMenuNewFolder := TMenuItem.Create(Self);
+    miMenuNewFolder.Caption := 'Nova Pasta...';
+    miMenuNewFolder.OnClick := @miNewFolderClick;
+    miMenuNewConn.Parent.Insert(miMenuNewConn.Parent.IndexOf(miMenuNewConn) + 1, miMenuNewFolder);
+  end;
+
+  miNewFolder := TMenuItem.Create(pmConnections);
+  miNewFolder.Caption := 'Nova Pasta...';
+  miNewFolder.OnClick := @miNewFolderClick;
+  pmConnections.Items.Insert(pmConnections.Items.IndexOf(miEditConn), miNewFolder);
+
+  miNewConnInFolder := TMenuItem.Create(pmConnections);
+  miNewConnInFolder.Caption := 'Nova Conexão nesta Pasta...';
+  miNewConnInFolder.OnClick := @miNewConnInFolderClick;
+  pmConnections.Items.Insert(pmConnections.Items.IndexOf(miNewFolder) + 1, miNewConnInFolder);
+
+  miRenameFolder := TMenuItem.Create(pmConnections);
+  miRenameFolder.Caption := 'Renomear Pasta...';
+  miRenameFolder.OnClick := @miRenameFolderClick;
+  pmConnections.Items.Insert(pmConnections.Items.IndexOf(miNewConnInFolder) + 1, miRenameFolder);
+
+  miDeleteFolder := TMenuItem.Create(pmConnections);
+  miDeleteFolder.Caption := 'Excluir Pasta';
+  miDeleteFolder.OnClick := @miDeleteFolderClick;
+  pmConnections.Items.Insert(pmConnections.Items.IndexOf(miRenameFolder) + 1, miDeleteFolder);
+
+  miMoveToFolder := TMenuItem.Create(pmConnections);
+  miMoveToFolder.Caption := 'Mover para Pasta...';
+  miMoveToFolder.OnClick := @miMoveToFolderClick;
+  pmConnections.Items.Insert(pmConnections.Items.IndexOf(miEditConn) + 1, miMoveToFolder);
+
   OnShortCut := @FormShortCut;
   ApplyVisualTheme;
   StatusBar1.SimpleText := 'Pronto (F9 executa | Alt+F formata SQL | Ctrl+F12 Script Executive | Ctrl+Espaço autocompleta)';
@@ -521,12 +590,18 @@ function TMainForm.CreateNodeData(
   const AKind: TExplorerNodeKind;
   const AProfile: TConnectionProfile;
   const ACategory: TSchemaObjectKind;
-  const AObjectName: string
+  const AObjectName: string;
+  const ADbType: TDatabaseType;
+  const AFolderName: string
 ): TExplorerNodeData;
 begin
   Result := TExplorerNodeData.Create;
   Result.Kind := AKind;
+  Result.DatabaseType := ADbType;
+  Result.FolderName := Trim(AFolderName);
   Result.Profile := AProfile;
+  if (AProfile <> nil) and (AKind in [enkConnection, enkDatabase, enkCategory, enkObject]) then
+    Result.DatabaseType := AProfile.DatabaseType;
   Result.Category := ACategory;
   Result.ObjectName := AObjectName;
   Result.Loaded := False;
@@ -534,12 +609,61 @@ begin
   FNodeDataList.Add(Result);
 end;
 
-procedure TMainForm.RefreshConnectionsTree(const ASelectProfileId: string);
+procedure TMainForm.UpdateFolderCaptions;
 var
-  RootFirebird, RootPostgres, RootMariaDB, ConnNode, SelectNode: TTreeNode;
+  Node: TTreeNode;
+  Data: TExplorerNodeData;
+begin
+  Node := tvConnections.Items.GetFirstNode;
+  while Node <> nil do
+  begin
+    if Node.Data <> nil then
+    begin
+      Data := TExplorerNodeData(Node.Data);
+      if Data.Kind = enkFolder then
+        Node.Text := Format('[Pasta] %s (%d)', [Data.FolderName, Node.Count]);
+    end;
+    Node := Node.GetNextSibling;
+  end;
+end;
+
+procedure TMainForm.RefreshConnectionsTree(
+  const ASelectProfileId: string;
+  const ASelectFolderName: string
+);
+var
+  ParentNode, FolderNode, ConnNode, SelectNode, Cur: TTreeNode;
   Profile: TConnectionProfile;
+  FolderList: TStringList;
+  I: Integer;
+  FolderName, ConnCaption: string;
+
+  function FindOrAddFolderNode(const AName: string): TTreeNode;
+  var
+    SearchNode: TTreeNode;
+    D: TExplorerNodeData;
+  begin
+    SearchNode := tvConnections.Items.GetFirstNode;
+    while SearchNode <> nil do
+    begin
+      if SearchNode.Data <> nil then
+      begin
+        D := TExplorerNodeData(SearchNode.Data);
+        if (D.Kind = enkFolder) and SameText(D.FolderName, AName) then
+          Exit(SearchNode);
+      end;
+      SearchNode := SearchNode.GetNextSibling;
+    end;
+    Result := tvConnections.Items.AddObject(
+      nil,
+      Format('[Pasta] %s (0)', [AName]),
+      CreateNodeData(enkFolder, nil, sokTables, '', dtFirebird, AName)
+    );
+  end;
+
 begin
   SelectNode := nil;
+  FolderList := TStringList.Create;
   tvConnections.Items.BeginUpdate;
   try
     tvConnections.Items.Clear;
@@ -549,42 +673,57 @@ begin
     FreeAndNil(FConnections);
     FConnections := FManageConnections.ListAll;
 
-    RootFirebird := tvConnections.Items.AddObject(nil, 'Firebird', CreateNodeData(enkGroup));
-    RootPostgres := tvConnections.Items.AddObject(nil, 'PostgreSQL', CreateNodeData(enkGroup));
-    RootMariaDB := tvConnections.Items.AddObject(nil, 'MariaDB', CreateNodeData(enkGroup));
+    FManageConnections.GetFolders(FolderList);
+    for I := 0 to FolderList.Count - 1 do
+    begin
+      FolderNode := FindOrAddFolderNode(FolderList[I]);
+      if (ASelectProfileId = '') and (Trim(ASelectFolderName) <> '') and
+         SameText(FolderList[I], Trim(ASelectFolderName)) then
+        SelectNode := FolderNode;
+    end;
 
     for Profile in FConnections do
     begin
-      if Profile.DatabaseType = dtFirebird then
-        ConnNode := tvConnections.Items.AddChildObject(
-          RootFirebird, Profile.Name, CreateNodeData(enkConnection, Profile)
-        )
-      else if Profile.DatabaseType = dtMariaDB then
-        ConnNode := tvConnections.Items.AddChildObject(
-          RootMariaDB, Profile.Name, CreateNodeData(enkConnection, Profile)
-        )
-      else if Trim(Profile.Database) = '' then
-        ConnNode := tvConnections.Items.AddChildObject(
-          RootPostgres,
-          Format('%s [servidor]', [Profile.Name]),
-          CreateNodeData(enkConnection, Profile)
-        )
+      FolderName := Trim(Profile.Folder);
+      if FolderName <> '' then
+      begin
+        FolderNode := FindOrAddFolderNode(FolderName);
+        ParentNode := FolderNode;
+      end
       else
-        ConnNode := tvConnections.Items.AddChildObject(
-          RootPostgres,
-          Format('%s [%s]', [Profile.Name, Profile.EffectiveSchema]),
-          CreateNodeData(enkConnection, Profile)
-        );
+        ParentNode := nil;
+
+      if (Profile.DatabaseType = dtPostgreSQL) and (Trim(Profile.Database) = '') then
+        ConnCaption := Format('%s [PG: servidor]', [Profile.Name])
+      else if Profile.DatabaseType = dtPostgreSQL then
+        ConnCaption := Format('%s [PG: %s]', [Profile.Name, Profile.EffectiveSchema])
+      else if Profile.DatabaseType = dtMariaDB then
+        ConnCaption := Format('%s [MariaDB]', [Profile.Name])
+      else
+        ConnCaption := Format('%s [FB]', [Profile.Name]);
+
+      ConnNode := tvConnections.Items.AddChildObject(
+        ParentNode,
+        ConnCaption,
+        CreateNodeData(enkConnection, Profile)
+      );
+
       ConnNode.HasChildren := True;
       if (ASelectProfileId <> '') and SameText(Profile.Id, ASelectProfileId) then
         SelectNode := ConnNode;
     end;
 
-    RootFirebird.Expand(False);
-    RootPostgres.Expand(False);
-    RootMariaDB.Expand(False);
+    UpdateFolderCaptions;
+    Cur := tvConnections.Items.GetFirstNode;
+    while Cur <> nil do
+    begin
+      if (Cur.Data <> nil) and (TExplorerNodeData(Cur.Data).Kind = enkFolder) and (Cur.Count > 0) then
+        Cur.Expand(False);
+      Cur := Cur.GetNextSibling;
+    end;
   finally
     tvConnections.Items.EndUpdate;
+    FolderList.Free;
   end;
 
   ApplyTreeFilter;
@@ -618,7 +757,9 @@ var
     if FilterText = '' then
     begin
       ANode.Visible := True;
-      if (Data.Kind = enkCategory) and Data.Loaded then
+      if Data.Kind = enkFolder then
+        ANode.Text := Format('[Pasta] %s (%d)', [Data.FolderName, ANode.Count])
+      else if (Data.Kind = enkCategory) and Data.Loaded then
         ANode.Text := Format('%s (%d)', [SchemaObjectKindToStr(Data.Category), Data.TotalCount]);
       Child := ANode.GetFirstChild;
       while Child <> nil do
@@ -634,8 +775,10 @@ var
     case Data.Kind of
       enkGroup:
         SelfMatches := False;
+      enkFolder:
+        SelfMatches := Pos(FilterText, LowerCase(Data.FolderName)) > 0;
       enkConnection:
-        SelfMatches := Pos(FilterText, LowerCase(Data.Profile.Name)) > 0;
+        SelfMatches := AParentMatched or (Pos(FilterText, LowerCase(Data.Profile.Name)) > 0);
       enkDatabase:
         SelfMatches := AParentMatched or (Pos(FilterText, LowerCase(Data.Profile.Database)) > 0);
       enkCategory:
@@ -730,67 +873,44 @@ begin
 end;
 
 function TMainForm.FindCategoryNode(const AProfileId: string; const AKind: TSchemaObjectKind): TTreeNode;
+
+  function SearchInNode(const ANode: TTreeNode): TTreeNode;
+  var
+    Child: TTreeNode;
+    Data: TExplorerNodeData;
+  begin
+    Result := nil;
+    if (ANode = nil) or (ANode.Data = nil) then
+      Exit;
+
+    Data := TExplorerNodeData(ANode.Data);
+    if (Data.Kind = enkCategory) and (Data.Category = AKind) and
+       (Data.Profile <> nil) and SameText(Data.Profile.Id, AProfileId) then
+      Exit(ANode);
+
+    if Data.Kind in [enkGroup, enkFolder, enkConnection, enkDatabase] then
+    begin
+      Child := ANode.GetFirstChild;
+      while Child <> nil do
+      begin
+        Result := SearchInNode(Child);
+        if Result <> nil then
+          Exit;
+        Child := Child.GetNextSibling;
+      end;
+    end;
+  end;
+
 var
-  GroupNode, ConnNode, ChildNode, CatNode: TTreeNode;
-  Data, ChildData: TExplorerNodeData;
+  GroupNode: TTreeNode;
 begin
   Result := nil;
   GroupNode := tvConnections.Items.GetFirstNode;
   while GroupNode <> nil do
   begin
-    ConnNode := GroupNode.GetFirstChild;
-    while ConnNode <> nil do
-    begin
-      if ConnNode.Data <> nil then
-      begin
-        Data := TExplorerNodeData(ConnNode.Data);
-        if (Data.Kind = enkConnection) and (Data.Profile <> nil) then
-        begin
-          if SameText(Data.Profile.Id, AProfileId) then
-          begin
-            CatNode := ConnNode.GetFirstChild;
-            while CatNode <> nil do
-            begin
-              if CatNode.Data <> nil then
-              begin
-                Data := TExplorerNodeData(CatNode.Data);
-                if (Data.Kind = enkCategory) and (Data.Category = AKind) then
-                  Exit(CatNode);
-              end;
-              CatNode := CatNode.GetNextSibling;
-            end;
-          end
-          else
-          begin
-            ChildNode := ConnNode.GetFirstChild;
-            while ChildNode <> nil do
-            begin
-              if ChildNode.Data <> nil then
-              begin
-                ChildData := TExplorerNodeData(ChildNode.Data);
-                if (ChildData.Kind = enkDatabase) and (ChildData.Profile <> nil) and
-                   SameText(ChildData.Profile.Id, AProfileId) then
-                begin
-                  CatNode := ChildNode.GetFirstChild;
-                  while CatNode <> nil do
-                  begin
-                    if CatNode.Data <> nil then
-                    begin
-                      Data := TExplorerNodeData(CatNode.Data);
-                      if (Data.Kind = enkCategory) and (Data.Category = AKind) then
-                        Exit(CatNode);
-                    end;
-                    CatNode := CatNode.GetNextSibling;
-                  end;
-                end;
-              end;
-              ChildNode := ChildNode.GetNextSibling;
-            end;
-          end;
-        end;
-      end;
-      ConnNode := ConnNode.GetNextSibling;
-    end;
+    Result := SearchInNode(GroupNode);
+    if Result <> nil then
+      Exit;
     GroupNode := GroupNode.GetNextSibling;
   end;
 end;
@@ -1680,15 +1800,46 @@ begin
   end;
 end;
 
+function TMainForm.SelectedFolderNode: TTreeNode;
+var
+  Node: TTreeNode;
+  Data: TExplorerNodeData;
+begin
+  Result := nil;
+  Node := tvConnections.Selected;
+  while Node <> nil do
+  begin
+    if Node.Data <> nil then
+    begin
+      Data := TExplorerNodeData(Node.Data);
+      if Data.Kind = enkFolder then
+        Exit(Node);
+    end;
+    Node := Node.Parent;
+  end;
+end;
+
 procedure TMainForm.UpdateConnectionButtonsState;
 var
-  ConnNode: TTreeNode;
-  HasConn: Boolean;
+  ConnNode, FolderNode: TTreeNode;
+  HasConn, HasFolder: Boolean;
 begin
   ConnNode := SelectedConnectionNode;
+  FolderNode := SelectedFolderNode;
   HasConn := ConnNode <> nil;
-  btnEditConn.Enabled := HasConn;
-  btnDeleteConn.Enabled := HasConn;
+  HasFolder := (not HasConn) and (FolderNode <> nil);
+  btnEditConn.Enabled := HasConn or HasFolder;
+  btnDeleteConn.Enabled := HasConn or HasFolder;
+  if HasFolder then
+  begin
+    btnEditConn.Hint := 'Renomear pasta selecionada';
+    btnDeleteConn.Hint := 'Excluir pasta selecionada';
+  end
+  else
+  begin
+    btnEditConn.Hint := 'Editar conexão selecionada';
+    btnDeleteConn.Hint := 'Excluir conexão selecionada';
+  end;
   btnMoveConnUp.Enabled := HasConn and (FindAdjacentVisibleSibling(ConnNode, -1) <> nil);
   btnMoveConnDown.Enabled := HasConn and (FindAdjacentVisibleSibling(ConnNode, 1) <> nil);
   btnSortConns.Enabled := (FConnections <> nil) and (FConnections.Count > 1);
@@ -1702,9 +1853,37 @@ procedure TMainForm.PersistCurrentTreeOrder;
 var
   OrderedProfiles: TConnectionProfileList;
   OrderedIds: TStringList;
-  Root, Child: TTreeNode;
-  Data: TExplorerNodeData;
+  Root: TTreeNode;
   Profile: TConnectionProfile;
+
+  procedure CollectFromNode(const ANode: TTreeNode);
+  var
+    Child: TTreeNode;
+    Data: TExplorerNodeData;
+  begin
+    if (ANode = nil) or (ANode.Data = nil) then
+      Exit;
+
+    Data := TExplorerNodeData(ANode.Data);
+    if (Data.Kind = enkConnection) and (Data.Profile <> nil) then
+    begin
+      if OrderedProfiles.IndexOf(Data.Profile) < 0 then
+      begin
+        OrderedProfiles.Add(Data.Profile);
+        OrderedIds.Add(Data.Profile.Id);
+      end;
+    end
+    else if Data.Kind in [enkGroup, enkFolder] then
+    begin
+      Child := ANode.GetFirstChild;
+      while Child <> nil do
+      begin
+        CollectFromNode(Child);
+        Child := Child.GetNextSibling;
+      end;
+    end;
+  end;
+
 begin
   if FConnections = nil then
     Exit;
@@ -1715,23 +1894,7 @@ begin
     Root := tvConnections.Items.GetFirstNode;
     while Root <> nil do
     begin
-      Child := Root.GetFirstChild;
-      while Child <> nil do
-      begin
-        if Child.Data <> nil then
-        begin
-          Data := TExplorerNodeData(Child.Data);
-          if (Data.Kind = enkConnection) and (Data.Profile <> nil) then
-          begin
-            if OrderedProfiles.IndexOf(Data.Profile) < 0 then
-            begin
-              OrderedProfiles.Add(Data.Profile);
-              OrderedIds.Add(Data.Profile.Id);
-            end;
-          end;
-        end;
-        Child := Child.GetNextSibling;
-      end;
+      CollectFromNode(Root);
       Root := Root.GetNextSibling;
     end;
 
@@ -1792,49 +1955,94 @@ end;
 
 procedure TMainForm.SortConnections(const AAscending: Boolean);
 var
-  PrevSelected, Root, Child, TempNode: TTreeNode;
-  Nodes: array of TTreeNode;
-  Count, I, J, Cmp: Integer;
-begin
-  PrevSelected := SelectedConnectionNode;
-  tvConnections.Items.BeginUpdate;
-  try
-    Root := tvConnections.Items.GetFirstNode;
-    while Root <> nil do
+  PrevSelected: TTreeNode;
+
+  procedure SortNodesArray(var ANodes: array of TTreeNode; const ACount: Integer);
+  var
+    I, J, Cmp: Integer;
+    TempNode: TTreeNode;
+  begin
+    for I := 0 to ACount - 2 do
+      for J := I + 1 to ACount - 1 do
+      begin
+        Cmp := AnsiCompareText(ANodes[I].Text, ANodes[J].Text);
+        if not AAscending then
+          Cmp := -Cmp;
+        if Cmp > 0 then
+        begin
+          TempNode := ANodes[I];
+          ANodes[I] := ANodes[J];
+          ANodes[J] := TempNode;
+        end;
+      end;
+  end;
+
+  procedure SortRootAndFolders;
+  var
+    Folders, RootConns, FolderConns: array of TTreeNode;
+    Node, Child: TTreeNode;
+    FCount, RCount, CCount, I: Integer;
+  begin
+    SetLength(Folders, 0);
+    SetLength(RootConns, 0);
+    FCount := 0;
+    RCount := 0;
+
+    Node := tvConnections.Items.GetFirstNode;
+    while Node <> nil do
     begin
-      SetLength(Nodes, 0);
-      Count := 0;
-      Child := Root.GetFirstChild;
+      if Node.Data <> nil then
+      begin
+        if TExplorerNodeData(Node.Data).Kind = enkFolder then
+        begin
+          Inc(FCount);
+          SetLength(Folders, FCount);
+          Folders[FCount - 1] := Node;
+        end
+        else if TExplorerNodeData(Node.Data).Kind = enkConnection then
+        begin
+          Inc(RCount);
+          SetLength(RootConns, RCount);
+          RootConns[RCount - 1] := Node;
+        end;
+      end;
+      Node := Node.GetNextSibling;
+    end;
+
+    SortNodesArray(Folders, FCount);
+    SortNodesArray(RootConns, RCount);
+
+    for I := 0 to FCount - 1 do
+    begin
+      Folders[I].MoveTo(nil, naAdd);
+
+      SetLength(FolderConns, 0);
+      CCount := 0;
+      Child := Folders[I].GetFirstChild;
       while Child <> nil do
       begin
         if (Child.Data <> nil) and (TExplorerNodeData(Child.Data).Kind = enkConnection) then
         begin
-          Inc(Count);
-          SetLength(Nodes, Count);
-          Nodes[Count - 1] := Child;
+          Inc(CCount);
+          SetLength(FolderConns, CCount);
+          FolderConns[CCount - 1] := Child;
         end;
         Child := Child.GetNextSibling;
       end;
-
-      for I := 0 to Count - 2 do
-        for J := I + 1 to Count - 1 do
-        begin
-          Cmp := AnsiCompareText(Nodes[I].Text, Nodes[J].Text);
-          if not AAscending then
-            Cmp := -Cmp;
-          if Cmp > 0 then
-          begin
-            TempNode := Nodes[I];
-            Nodes[I] := Nodes[J];
-            Nodes[J] := TempNode;
-          end;
-        end;
-
-      for I := 0 to Count - 1 do
-        Nodes[I].MoveTo(Root, naAddChild);
-
-      Root := Root.GetNextSibling;
+      SortNodesArray(FolderConns, CCount);
+      for Child in FolderConns do
+        Child.MoveTo(Folders[I], naAddChild);
     end;
+
+    for I := 0 to RCount - 1 do
+      RootConns[I].MoveTo(nil, naAdd);
+  end;
+
+begin
+  PrevSelected := SelectedConnectionNode;
+  tvConnections.Items.BeginUpdate;
+  try
+    SortRootAndFolders;
 
     if PrevSelected <> nil then
     begin
@@ -1943,7 +2151,7 @@ begin
             );
             DbNode.HasChildren := True;
           end;
-          Node.Text := Format('%s [servidor] (%d)', [Data.Profile.Name, Databases.Count]);
+          Node.Text := Format('%s [PG: servidor] (%d)', [Data.Profile.Name, Databases.Count]);
           Data.TotalCount := Databases.Count;
           Data.Loaded := True;
         finally
@@ -2030,10 +2238,17 @@ end;
 procedure TMainForm.btnNewConnClick(Sender: TObject);
 var
   Profile: TConnectionProfile;
+  Data: TExplorerNodeData;
 begin
   Profile := TConnectionProfile.Create;
   try
-    if TConnectionForm.Execute(Profile, FTestConnection) then
+    Data := SelectedNodeData;
+    if (Data <> nil) and (Data.Kind = enkFolder) then
+      Profile.Folder := Data.FolderName
+    else if (Data <> nil) and (Data.Profile <> nil) then
+      Profile.Folder := Data.Profile.Folder;
+
+    if TConnectionForm.Execute(Profile, FTestConnection, FManageConnections) then
     begin
       FManageConnections.Save(Profile);
       RefreshConnectionsTree(Profile.Id);
@@ -2047,17 +2262,24 @@ end;
 procedure TMainForm.btnEditConnClick(Sender: TObject);
 var
   Current, Editable: TConnectionProfile;
+  FolderNode: TTreeNode;
 begin
   Current := SelectedProfile;
   if Current = nil then
   begin
-    MessageDlg('Aviso', 'Selecione uma conexão para editar.', mtInformation, [mbOK], 0);
+    FolderNode := SelectedFolderNode;
+    if FolderNode <> nil then
+    begin
+      miRenameFolderClick(nil);
+      Exit;
+    end;
+    MessageDlg('Aviso', 'Selecione uma conexão ou pasta para editar.', mtInformation, [mbOK], 0);
     Exit;
   end;
 
   Editable := Current.Clone;
   try
-    if TConnectionForm.Execute(Editable, FTestConnection) then
+    if TConnectionForm.Execute(Editable, FTestConnection, FManageConnections) then
     begin
       FManageConnections.Save(Editable);
       RefreshConnectionsTree(Editable.Id);
@@ -2071,11 +2293,18 @@ end;
 procedure TMainForm.btnDeleteConnClick(Sender: TObject);
 var
   Current: TConnectionProfile;
+  FolderNode: TTreeNode;
 begin
   Current := SelectedProfile;
   if Current = nil then
   begin
-    MessageDlg('Aviso', 'Selecione uma conexão para excluir.', mtInformation, [mbOK], 0);
+    FolderNode := SelectedFolderNode;
+    if FolderNode <> nil then
+    begin
+      miDeleteFolderClick(nil);
+      Exit;
+    end;
+    MessageDlg('Aviso', 'Selecione uma conexão ou pasta para excluir.', mtInformation, [mbOK], 0);
     Exit;
   end;
 
@@ -2364,17 +2593,25 @@ begin
 
   SrcNode := tvConnections.Selected;
   DstNode := tvConnections.GetNodeAt(X, Y);
-  if (SrcNode = nil) or (DstNode = nil) or (SrcNode = DstNode) or
-     (SrcNode.Data = nil) or (DstNode.Data = nil) then
+  if (SrcNode = nil) or (SrcNode = DstNode) or (SrcNode.Data = nil) then
     Exit;
 
   SrcData := TExplorerNodeData(SrcNode.Data);
-  DstData := TExplorerNodeData(DstNode.Data);
-  if SrcData.Kind <> enkConnection then
+  if (SrcData.Kind <> enkConnection) or (SrcData.Profile = nil) then
     Exit;
 
-  Accept := ((DstData.Kind = enkConnection) and (DstNode.Parent = SrcNode.Parent)) or
-            ((DstData.Kind = enkGroup) and (DstNode = SrcNode.Parent));
+  if DstNode = nil then
+  begin
+    { Área vazia da árvore: permite tirar a conexão da pasta para a raiz }
+    Accept := SrcNode.Parent <> nil;
+    Exit;
+  end;
+
+  if DstNode.Data = nil then
+    Exit;
+
+  DstData := TExplorerNodeData(DstNode.Data);
+  Accept := (DstData.Kind in [enkConnection, enkFolder]);
 end;
 
 procedure TMainForm.tvConnectionsDragDrop(Sender, Source: TObject; X, Y: Integer);
@@ -2382,45 +2619,79 @@ var
   SrcNode, DstNode: TTreeNode;
   SrcData, DstData: TExplorerNodeData;
   NodeRect: TRect;
+  TargetFolder, OldFolder: string;
 begin
   if Source <> tvConnections then
     Exit;
 
   SrcNode := tvConnections.Selected;
   DstNode := tvConnections.GetNodeAt(X, Y);
-  if (SrcNode = nil) or (DstNode = nil) or (SrcNode = DstNode) or
-     (SrcNode.Data = nil) or (DstNode.Data = nil) then
+  if (SrcNode = nil) or (SrcNode = DstNode) or (SrcNode.Data = nil) then
     Exit;
 
   SrcData := TExplorerNodeData(SrcNode.Data);
-  DstData := TExplorerNodeData(DstNode.Data);
-  if SrcData.Kind <> enkConnection then
+  if (SrcData.Kind <> enkConnection) or (SrcData.Profile = nil) then
     Exit;
+
+  OldFolder := Trim(SrcData.Profile.Folder);
+  TargetFolder := OldFolder;
 
   tvConnections.Items.BeginUpdate;
   try
-    if (DstData.Kind = enkGroup) and (DstNode = SrcNode.Parent) then
-      SrcNode.MoveTo(DstNode, naAddChildFirst)
-    else if (DstData.Kind = enkConnection) and (DstNode.Parent = SrcNode.Parent) then
+    if DstNode = nil then
     begin
-      NodeRect := DstNode.DisplayRect(False);
-      if Y < (NodeRect.Top + NodeRect.Bottom) div 2 then
-        SrcNode.MoveTo(DstNode, naInsert)
-      else
-        SrcNode.MoveTo(DstNode, naInsertBehind);
+      TargetFolder := '';
+      SrcNode.MoveTo(nil, naAdd);
     end
     else
-      Exit;
+    begin
+      if DstNode.Data = nil then
+        Exit;
+      DstData := TExplorerNodeData(DstNode.Data);
 
+      if DstData.Kind = enkFolder then
+      begin
+        TargetFolder := DstData.FolderName;
+        SrcNode.MoveTo(DstNode, naAddChild);
+        DstNode.Expand(False);
+      end
+      else if (DstData.Kind = enkConnection) and (DstData.Profile <> nil) then
+      begin
+        TargetFolder := Trim(DstData.Profile.Folder);
+        NodeRect := DstNode.DisplayRect(False);
+        if Y < (NodeRect.Top + NodeRect.Bottom) div 2 then
+          SrcNode.MoveTo(DstNode, naInsert)
+        else
+          SrcNode.MoveTo(DstNode, naInsertBehind);
+      end
+      else
+        Exit;
+    end;
+
+    UpdateFolderCaptions;
     tvConnections.Selected := SrcNode;
     SrcNode.MakeVisible;
   finally
     tvConnections.Items.EndUpdate;
   end;
 
+  if not SameText(OldFolder, TargetFolder) then
+  begin
+    SrcData.Profile.Folder := TargetFolder;
+    FManageConnections.Save(SrcData.Profile);
+  end;
+
   PersistCurrentTreeOrder;
   UpdateConnectionButtonsState;
-  StatusBar1.SimpleText := 'Ordem das conexões atualizada.';
+  if not SameText(OldFolder, TargetFolder) then
+  begin
+    if TargetFolder = '' then
+      StatusBar1.SimpleText := Format('Conexão "%s" movida para a raiz.', [SrcData.Profile.Name])
+    else
+      StatusBar1.SimpleText := Format('Conexão "%s" movida para a pasta "%s".', [SrcData.Profile.Name, TargetFolder]);
+  end
+  else
+    StatusBar1.SimpleText := 'Ordem das conexões atualizada.';
 end;
 
 procedure TMainForm.tvConnectionsKeyDown(Sender: TObject; var Key: Word;
@@ -2440,14 +2711,16 @@ end;
 
 procedure TMainForm.pmConnectionsPopup(Sender: TObject);
 var
-  ConnNode: TTreeNode;
+  ConnNode, FolderNode: TTreeNode;
   Data: TExplorerNodeData;
   Profile: TConnectionProfile;
   Summary: TProfileSessionSummary;
-  HasConn, HasMultiple, IsCat, IsObj: Boolean;
+  HasConn, HasFolder, HasMultiple, IsCat, IsObj: Boolean;
 begin
   ConnNode := SelectedConnectionNode;
+  FolderNode := SelectedFolderNode;
   HasConn := ConnNode <> nil;
+  HasFolder := FolderNode <> nil;
   HasMultiple := (FConnections <> nil) and (FConnections.Count > 1);
   Data := SelectedNodeData;
   IsCat := (Data <> nil) and (Data.Kind = enkCategory);
@@ -2499,6 +2772,16 @@ begin
     miDisconnectConn.Caption := 'Desconectar';
 
   miEditConn.Enabled := HasConn;
+  if miNewFolder <> nil then
+    miNewFolder.Visible := True;
+  if miNewConnInFolder <> nil then
+    miNewConnInFolder.Visible := (not HasConn) and HasFolder;
+  if miRenameFolder <> nil then
+    miRenameFolder.Visible := (not HasConn) and HasFolder;
+  if miDeleteFolder <> nil then
+    miDeleteFolder.Visible := (not HasConn) and HasFolder;
+  if miMoveToFolder <> nil then
+    miMoveToFolder.Visible := HasConn;
   if miSelectSchema <> nil then
   begin
     miSelectSchema.Visible := (Profile <> nil) and (Profile.DatabaseType = dtPostgreSQL) and
@@ -2726,7 +3009,7 @@ begin
   try
     Duplicated.Id := '';
     Duplicated.Name := Current.Name + ' (Cópia)';
-    if TConnectionForm.Execute(Duplicated, FTestConnection) then
+    if TConnectionForm.Execute(Duplicated, FTestConnection, FManageConnections) then
     begin
       FManageConnections.Save(Duplicated);
       RefreshConnectionsTree(Duplicated.Id);
@@ -3137,6 +3420,11 @@ begin
     else if SameText(Node.Text, 'MariaDB') then
       Sender.Canvas.Font.Color := $00807015;
   end
+  else if Data.Kind = enkFolder then
+  begin
+    Sender.Canvas.Font.Style := [fsBold];
+    Sender.Canvas.Font.Color := $00266B9E;
+  end
   else if Data.Kind in [enkConnection, enkDatabase] then
   begin
     Sender.Canvas.Font.Style := [fsBold];
@@ -3188,6 +3476,175 @@ end;
 procedure TMainForm.miToolDocsClick(Sender: TObject);
 begin
   TDocumentationForm.Execute;
+end;
+
+procedure TMainForm.miNewFolderClick(Sender: TObject);
+var
+  FolderName: string;
+begin
+  FolderName := '';
+  if not InputQuery('Nova Pasta de Conexões', 'Nome da pasta:', FolderName) then
+    Exit;
+
+  FolderName := Trim(FolderName);
+  if FolderName = '' then
+    Exit;
+
+  try
+    FManageConnections.AddFolder(FolderName);
+    RefreshConnectionsTree('', FolderName);
+    StatusBar1.SimpleText := Format('Pasta "%s" criada.', [FolderName]);
+  except
+    on E: Exception do
+      MessageDlg('Erro ao criar pasta', E.Message, mtError, [mbOK], 0);
+  end;
+end;
+
+procedure TMainForm.miNewConnInFolderClick(Sender: TObject);
+begin
+  btnNewConnClick(Sender);
+end;
+
+procedure TMainForm.miRenameFolderClick(Sender: TObject);
+var
+  FolderNode: TTreeNode;
+  Data: TExplorerNodeData;
+  OldName, NewName: string;
+begin
+  FolderNode := SelectedFolderNode;
+  if (FolderNode = nil) or (FolderNode.Data = nil) then
+    Exit;
+
+  Data := TExplorerNodeData(FolderNode.Data);
+  OldName := Data.FolderName;
+  NewName := OldName;
+  if not InputQuery('Renomear Pasta', 'Novo nome da pasta:', NewName) then
+    Exit;
+
+  NewName := Trim(NewName);
+  if (NewName = '') or SameText(OldName, NewName) then
+    Exit;
+
+  try
+    FManageConnections.RenameFolder(OldName, NewName);
+    RefreshConnectionsTree('', NewName);
+    StatusBar1.SimpleText := Format('Pasta "%s" renomeada para "%s".', [OldName, NewName]);
+  except
+    on E: Exception do
+      MessageDlg('Erro ao renomear pasta', E.Message, mtError, [mbOK], 0);
+  end;
+end;
+
+procedure TMainForm.miDeleteFolderClick(Sender: TObject);
+var
+  FolderNode: TTreeNode;
+  Data: TExplorerNodeData;
+  ConnCount: Integer;
+  Msg: string;
+begin
+  FolderNode := SelectedFolderNode;
+  if (FolderNode = nil) or (FolderNode.Data = nil) then
+    Exit;
+
+  Data := TExplorerNodeData(FolderNode.Data);
+  ConnCount := FolderNode.Count;
+  if ConnCount > 0 then
+    Msg := Format('Deseja excluir a pasta "%s"? As %d conexão(ões) dentro dela serão mantidas e movidas para a raiz.',
+      [Data.FolderName, ConnCount])
+  else
+    Msg := Format('Deseja excluir a pasta vazia "%s"?', [Data.FolderName]);
+
+  if MessageDlg('Excluir Pasta', Msg, mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    Exit;
+
+  FManageConnections.DeleteFolder(Data.FolderName);
+  RefreshConnectionsTree;
+  StatusBar1.SimpleText := Format('Pasta "%s" excluída.', [Data.FolderName]);
+end;
+
+procedure TMainForm.miMoveToFolderClick(Sender: TObject);
+var
+  Profile, MovedProfile: TConnectionProfile;
+  Folders: TStringList;
+  Dlg: TForm;
+  Lbl: TLabel;
+  CbFolder: TComboBox;
+  BtnOk, BtnCancel: TButton;
+  ChosenFolder: string;
+begin
+  Profile := SelectedProfile;
+  if Profile = nil then
+    Exit;
+
+  Folders := TStringList.Create;
+  try
+    FManageConnections.GetFolders(Folders);
+
+    Dlg := TForm.CreateNew(nil);
+    try
+      Dlg.Caption := 'Mover Conexão para Pasta - ' + Profile.Name;
+      Dlg.Position := poScreenCenter;
+      Dlg.BorderStyle := bsDialog;
+      Dlg.ClientWidth := 380;
+      Dlg.ClientHeight := 130;
+
+      Lbl := TLabel.Create(Dlg);
+      Lbl.Parent := Dlg;
+      Lbl.Left := 14;
+      Lbl.Top := 14;
+      Lbl.Caption := 'Escolha uma pasta, digite um novo nome ou deixe em branco para Raiz:';
+
+      CbFolder := TComboBox.Create(Dlg);
+      CbFolder.Parent := Dlg;
+      CbFolder.Left := 14;
+      CbFolder.Top := 34;
+      CbFolder.Width := 352;
+      CbFolder.Style := csDropDown;
+      CbFolder.Items.Assign(Folders);
+      CbFolder.Text := Trim(Profile.Folder);
+
+      BtnCancel := TButton.Create(Dlg);
+      BtnCancel.Parent := Dlg;
+      BtnCancel.Caption := 'Cancelar';
+      BtnCancel.ModalResult := mrCancel;
+      BtnCancel.Cancel := True;
+      BtnCancel.Width := 88;
+      BtnCancel.Height := 28;
+      BtnCancel.Left := 278;
+      BtnCancel.Top := 82;
+
+      BtnOk := TButton.Create(Dlg);
+      BtnOk.Parent := Dlg;
+      BtnOk.Caption := 'Mover';
+      BtnOk.ModalResult := mrOk;
+      BtnOk.Default := True;
+      BtnOk.Width := 88;
+      BtnOk.Height := 28;
+      BtnOk.Left := 182;
+      BtnOk.Top := 82;
+
+      if Dlg.ShowModal = mrOk then
+      begin
+        ChosenFolder := Trim(CbFolder.Text);
+        MovedProfile := Profile.Clone;
+        try
+          MovedProfile.Folder := ChosenFolder;
+          FManageConnections.Save(MovedProfile);
+        finally
+          MovedProfile.Free;
+        end;
+        RefreshConnectionsTree(Profile.Id);
+        if ChosenFolder = '' then
+          StatusBar1.SimpleText := Format('Conexão "%s" movida para a raiz.', [Profile.Name])
+        else
+          StatusBar1.SimpleText := Format('Conexão "%s" movida para a pasta "%s".', [Profile.Name, ChosenFolder]);
+      end;
+    finally
+      Dlg.Free;
+    end;
+  finally
+    Folders.Free;
+  end;
 end;
 
 end.

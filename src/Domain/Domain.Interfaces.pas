@@ -55,6 +55,10 @@ type
     procedure Save(const AProfile: TConnectionProfile);
     procedure Delete(const AId: string);
     procedure Reorder(const AOrderedIds: TStrings);
+    procedure GetFolders(const ATarget: TStrings);
+    procedure AddFolder(const AFolderName: string);
+    procedure RenameFolder(const AOldName, ANewName: string);
+    procedure DeleteFolder(const AFolderName: string);
   end;
 
 implementation
