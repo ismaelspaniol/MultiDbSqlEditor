@@ -106,6 +106,22 @@ type
     FOnOpenSqlInNewTab: TOpenSqlInNewTabEvent;
     FSourceLineDiffs: array of TDDLLineDiffKind;
     FTargetLineDiffs: array of TDDLLineDiffKind;
+    lbConnSuggest: TListBox;
+    FActiveSuggestCombo: TComboBox;
+    FIsUpdatingConnCombo: Boolean;
+    function FormatProfileComboCaption(const AProfile: TConnectionProfile): string;
+    procedure ConfigureSearchableConnCombo(const ACombo: TComboBox);
+    procedure EnsureConnSuggestBox;
+    procedure RestoreComboSelection(const ACombo: TComboBox);
+    procedure UpdateConnSuggestList(const ACombo: TComboBox; const AFilter: string);
+    procedure HideConnSuggest(const ARestoreText: Boolean);
+    procedure ApplySelectedProfileForCombo(const ACombo: TComboBox; const AProfile: TConnectionProfile);
+    procedure cbConnDropDown(Sender: TObject);
+    procedure cbConnKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure cbConnExit(Sender: TObject);
+    procedure lbConnSuggestMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure lbConnSuggestKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure lbConnSuggestExit(Sender: TObject);
     procedure SynEditDDLSpecialLineColors(Sender: TObject; Line: Integer;
       var Special: Boolean; var FG, BG: TColor);
     procedure ComputeDDLDiffHighlights;
@@ -154,6 +170,9 @@ type
   end;
 
 implementation
+
+uses
+  Math;
 
 {$R *.lfm}
 
@@ -231,17 +250,41 @@ begin
 end;
 
 function TDatabaseComparerFrame.SelectedSourceProfile: TConnectionProfile;
+var
+  I: Integer;
 begin
   Result := nil;
   if (cbSourceConn.ItemIndex >= 0) and (cbSourceConn.ItemIndex < cbSourceConn.Items.Count) then
     Result := TConnectionProfile(cbSourceConn.Items.Objects[cbSourceConn.ItemIndex]);
+
+  if (Result = nil) and (FSourceProfileId <> '') then
+  begin
+    for I := 0 to cbSourceConn.Items.Count - 1 do
+    begin
+      if (cbSourceConn.Items.Objects[I] <> nil) and
+         SameText(TConnectionProfile(cbSourceConn.Items.Objects[I]).Id, FSourceProfileId) then
+        Exit(TConnectionProfile(cbSourceConn.Items.Objects[I]));
+    end;
+  end;
 end;
 
 function TDatabaseComparerFrame.SelectedTargetProfile: TConnectionProfile;
+var
+  I: Integer;
 begin
   Result := nil;
   if (cbTargetConn.ItemIndex >= 0) and (cbTargetConn.ItemIndex < cbTargetConn.Items.Count) then
     Result := TConnectionProfile(cbTargetConn.Items.Objects[cbTargetConn.ItemIndex]);
+
+  if (Result = nil) and (FTargetProfileId <> '') then
+  begin
+    for I := 0 to cbTargetConn.Items.Count - 1 do
+    begin
+      if (cbTargetConn.Items.Objects[I] <> nil) and
+         SameText(TConnectionProfile(cbTargetConn.Items.Objects[I]).Id, FTargetProfileId) then
+        Exit(TConnectionProfile(cbTargetConn.Items.Objects[I]));
+    end;
+  end;
 end;
 
 procedure TDatabaseComparerFrame.Initialize(
@@ -257,6 +300,12 @@ begin
   FCompareWorker := nil;
   FApplyWorker := nil;
   FUpdatingToolbarSize := False;
+  FIsUpdatingConnCombo := False;
+  FActiveSuggestCombo := nil;
+
+  ConfigureSearchableConnCombo(cbSourceConn);
+  ConfigureSearchableConnCombo(cbTargetConn);
+  EnsureConnSuggestBox;
 
   {$IFDEF UNIX}
   grdDiffs.Font.Name := 'Monospace';
@@ -299,6 +348,7 @@ begin
   FreeAndNil(FProfiles);
   FProfiles := TConnectionProfileList.Create(True);
 
+  FIsUpdatingConnCombo := True;
   cbSourceConn.Items.BeginUpdate;
   cbTargetConn.Items.BeginUpdate;
   try
@@ -314,11 +364,11 @@ begin
         Cloned := Item.Clone;
         FProfiles.Add(Cloned);
         Idx := cbSourceConn.Items.AddObject(
-          Format('%s [%s]', [Cloned.Name, DatabaseTypeToStr(Cloned.DatabaseType)]),
+          FormatProfileComboCaption(Cloned),
           Cloned
         );
         cbTargetConn.Items.AddObject(
-          Format('%s [%s]', [Cloned.Name, DatabaseTypeToStr(Cloned.DatabaseType)]),
+          FormatProfileComboCaption(Cloned),
           Cloned
         );
         if (SrcId <> '') and SameText(Cloned.Id, SrcId) then
@@ -331,6 +381,10 @@ begin
     if (SrcIdx < 0) and (cbSourceConn.Items.Count > 0) then
       SrcIdx := 0;
     cbSourceConn.ItemIndex := SrcIdx;
+    if (SrcIdx >= 0) and (SrcIdx < cbSourceConn.Items.Count) then
+      cbSourceConn.Text := cbSourceConn.Items[SrcIdx]
+    else
+      cbSourceConn.Text := '';
 
     if (TgtIdx < 0) and (cbTargetConn.Items.Count > 1) then
     begin
@@ -340,6 +394,10 @@ begin
         TgtIdx := 0;
     end;
     cbTargetConn.ItemIndex := TgtIdx;
+    if (TgtIdx >= 0) and (TgtIdx < cbTargetConn.Items.Count) then
+      cbTargetConn.Text := cbTargetConn.Items[TgtIdx]
+    else
+      cbTargetConn.Text := '';
 
     if SelectedSourceProfile <> nil then
       FSourceProfileId := SelectedSourceProfile.Id
@@ -353,7 +411,9 @@ begin
   finally
     cbTargetConn.Items.EndUpdate;
     cbSourceConn.Items.EndUpdate;
+    FIsUpdatingConnCombo := False;
   end;
+  HideConnSuggest(False);
 end;
 
 function TDatabaseComparerFrame.UsesProfile(const AProfileId: string): Boolean;
@@ -816,37 +876,425 @@ begin
   RebuildCombinedScript;
 end;
 
+function TDatabaseComparerFrame.FormatProfileComboCaption(const AProfile: TConnectionProfile): string;
+begin
+  if AProfile = nil then
+    Exit('');
+  if Trim(AProfile.Folder) <> '' then
+    Result := Format('%s [%s] (%s)', [AProfile.Name, Trim(AProfile.Folder), DatabaseTypeToStr(AProfile.DatabaseType)])
+  else
+    Result := Format('%s (%s)', [AProfile.Name, DatabaseTypeToStr(AProfile.DatabaseType)]);
+end;
+
+procedure TDatabaseComparerFrame.ConfigureSearchableConnCombo(const ACombo: TComboBox);
+begin
+  if ACombo = nil then
+    Exit;
+  ACombo.Style := csDropDown;
+  ACombo.AutoComplete := False;
+  ACombo.AutoSelect := True;
+  ACombo.DropDownCount := 16;
+  ACombo.Width := 240;
+  ACombo.TextHint := 'Pesquisar conexão...';
+  ACombo.OnDropDown := @cbConnDropDown;
+  ACombo.OnKeyDown := @cbConnKeyDown;
+  ACombo.OnExit := @cbConnExit;
+end;
+
+procedure TDatabaseComparerFrame.EnsureConnSuggestBox;
+begin
+  if lbConnSuggest <> nil then
+    Exit;
+
+  lbConnSuggest := TListBox.Create(Self);
+  lbConnSuggest.Parent := Self;
+  lbConnSuggest.Visible := False;
+  lbConnSuggest.TabStop := False;
+  lbConnSuggest.Font.Assign(cbSourceConn.Font);
+  lbConnSuggest.OnMouseDown := @lbConnSuggestMouseDown;
+  lbConnSuggest.OnKeyDown := @lbConnSuggestKeyDown;
+  lbConnSuggest.OnExit := @lbConnSuggestExit;
+end;
+
+procedure TDatabaseComparerFrame.RestoreComboSelection(const ACombo: TComboBox);
+var
+  I: Integer;
+  TargetId: string;
+begin
+  if ACombo = nil then
+    Exit;
+
+  if ACombo = cbSourceConn then
+    TargetId := FSourceProfileId
+  else if ACombo = cbTargetConn then
+    TargetId := FTargetProfileId
+  else
+    TargetId := '';
+
+  FIsUpdatingConnCombo := True;
+  try
+    ACombo.ItemIndex := -1;
+    for I := 0 to ACombo.Items.Count - 1 do
+    begin
+      if (ACombo.Items.Objects[I] <> nil) and
+         SameText(TConnectionProfile(ACombo.Items.Objects[I]).Id, TargetId) then
+      begin
+        ACombo.ItemIndex := I;
+        ACombo.Text := ACombo.Items[I];
+        Break;
+      end;
+    end;
+    if ACombo.ItemIndex < 0 then
+      ACombo.Text := '';
+  finally
+    FIsUpdatingConnCombo := False;
+  end;
+end;
+
+procedure TDatabaseComparerFrame.HideConnSuggest(const ARestoreText: Boolean);
+begin
+  if lbConnSuggest <> nil then
+    lbConnSuggest.Visible := False;
+
+  if ARestoreText then
+  begin
+    RestoreComboSelection(cbSourceConn);
+    RestoreComboSelection(cbTargetConn);
+  end;
+  FActiveSuggestCombo := nil;
+end;
+
+procedure TDatabaseComparerFrame.cbConnDropDown(Sender: TObject);
+begin
+  if lbConnSuggest <> nil then
+    lbConnSuggest.Visible := False;
+  FActiveSuggestCombo := nil;
+end;
+
+procedure TDatabaseComparerFrame.UpdateConnSuggestList(const ACombo: TComboBox; const AFilter: string);
+var
+  Q, Haystack, CurText: string;
+  I, ItemH, MaxH, CurSel: Integer;
+  P: TConnectionProfile;
+  ScreenPt, ClientPt: TPoint;
+begin
+  if ACombo = nil then
+    Exit;
+
+  EnsureConnSuggestBox;
+  if (FActiveSuggestCombo <> nil) and (FActiveSuggestCombo <> ACombo) then
+    RestoreComboSelection(FActiveSuggestCombo);
+  FActiveSuggestCombo := ACombo;
+
+  if ACombo.DroppedDown then
+  begin
+    CurText := ACombo.Text;
+    CurSel := ACombo.SelStart;
+    FIsUpdatingConnCombo := True;
+    try
+      ACombo.DroppedDown := False;
+      if ACombo.Text <> CurText then
+        ACombo.Text := CurText;
+      ACombo.SelStart := CurSel;
+      ACombo.SelLength := 0;
+    finally
+      FIsUpdatingConnCombo := False;
+    end;
+  end;
+
+  Q := LowerCase(Trim(AFilter));
+  if Q = '' then
+  begin
+    lbConnSuggest.Visible := False;
+    Exit;
+  end;
+
+  lbConnSuggest.Items.BeginUpdate;
+  try
+    lbConnSuggest.Items.Clear;
+    for I := 0 to ACombo.Items.Count - 1 do
+    begin
+      P := TConnectionProfile(ACombo.Items.Objects[I]);
+      if P = nil then
+        Continue;
+      Haystack := LowerCase(
+        P.Name + ' ' + P.Folder + ' ' + P.Database + ' ' + P.Host + ' ' + DatabaseTypeToStr(P.DatabaseType)
+      );
+      if Pos(Q, Haystack) > 0 then
+        lbConnSuggest.Items.AddObject(ACombo.Items[I], P);
+    end;
+  finally
+    lbConnSuggest.Items.EndUpdate;
+  end;
+
+  if lbConnSuggest.Items.Count = 0 then
+  begin
+    lbConnSuggest.Visible := False;
+    Exit;
+  end;
+
+  ScreenPt := ACombo.ClientToScreen(Point(0, ACombo.Height));
+  ClientPt := ScreenToClient(ScreenPt);
+  lbConnSuggest.Left := ClientPt.X;
+  lbConnSuggest.Top := ClientPt.Y + 1;
+  lbConnSuggest.Width := Max(ACombo.Width, 340);
+  if lbConnSuggest.Left + lbConnSuggest.Width > ClientWidth - 4 then
+    lbConnSuggest.Width := Max(ACombo.Width, ClientWidth - lbConnSuggest.Left - 4);
+  ItemH := 18;
+  MaxH := Min(12, lbConnSuggest.Items.Count) * ItemH + 6;
+  lbConnSuggest.Height := MaxH;
+  lbConnSuggest.ItemIndex := 0;
+  lbConnSuggest.Visible := True;
+  lbConnSuggest.BringToFront;
+end;
+
+procedure TDatabaseComparerFrame.ApplySelectedProfileForCombo(
+  const ACombo: TComboBox;
+  const AProfile: TConnectionProfile
+);
+var
+  I: Integer;
+begin
+  if IsBusy or (ACombo = nil) or (AProfile = nil) then
+    Exit;
+
+  FIsUpdatingConnCombo := True;
+  try
+    for I := 0 to ACombo.Items.Count - 1 do
+    begin
+      if (ACombo.Items.Objects[I] <> nil) and
+         SameText(TConnectionProfile(ACombo.Items.Objects[I]).Id, AProfile.Id) then
+      begin
+        ACombo.ItemIndex := I;
+        ACombo.Text := ACombo.Items[I];
+        Break;
+      end;
+    end;
+  finally
+    FIsUpdatingConnCombo := False;
+  end;
+
+  if lbConnSuggest <> nil then
+    lbConnSuggest.Visible := False;
+  FActiveSuggestCombo := nil;
+
+  if ACombo = cbSourceConn then
+  begin
+    FSourceProfileId := AProfile.Id;
+    UpdateDialectForProfile(AProfile);
+  end
+  else if ACombo = cbTargetConn then
+  begin
+    FTargetProfileId := AProfile.Id;
+    btnExecuteScript.Enabled := (not IsBusy) and (Trim(SynEditScript.Lines.Text) <> '') and (SelectedTargetProfile <> nil);
+  end;
+end;
+
+procedure TDatabaseComparerFrame.cbConnKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+var
+  Combo: TComboBox;
+  P: TConnectionProfile;
+  NewIdx: Integer;
+begin
+  Combo := TComboBox(Sender);
+  if (lbConnSuggest <> nil) and lbConnSuggest.Visible and (lbConnSuggest.Items.Count > 0) then
+  begin
+    if Key = VK_DOWN then
+    begin
+      Key := 0;
+      NewIdx := lbConnSuggest.ItemIndex + 1;
+      if NewIdx >= lbConnSuggest.Items.Count then
+        NewIdx := 0;
+      lbConnSuggest.ItemIndex := NewIdx;
+      Exit;
+    end
+    else if Key = VK_UP then
+    begin
+      Key := 0;
+      NewIdx := lbConnSuggest.ItemIndex - 1;
+      if NewIdx < 0 then
+        NewIdx := lbConnSuggest.Items.Count - 1;
+      lbConnSuggest.ItemIndex := NewIdx;
+      Exit;
+    end
+    else if Key = VK_RETURN then
+    begin
+      Key := 0;
+      if lbConnSuggest.ItemIndex < 0 then
+        lbConnSuggest.ItemIndex := 0;
+      if (lbConnSuggest.ItemIndex >= 0) and (lbConnSuggest.ItemIndex < lbConnSuggest.Items.Count) then
+      begin
+        P := TConnectionProfile(lbConnSuggest.Items.Objects[lbConnSuggest.ItemIndex]);
+        if FActiveSuggestCombo <> nil then
+          Combo := FActiveSuggestCombo;
+        ApplySelectedProfileForCombo(Combo, P);
+      end;
+      Exit;
+    end
+    else if Key = VK_ESCAPE then
+    begin
+      Key := 0;
+      HideConnSuggest(True);
+      Exit;
+    end;
+  end
+  else if Key = VK_ESCAPE then
+  begin
+    Key := 0;
+    HideConnSuggest(True);
+  end;
+end;
+
+procedure TDatabaseComparerFrame.cbConnExit(Sender: TObject);
+begin
+  if (lbConnSuggest <> nil) and lbConnSuggest.Focused then
+    Exit;
+  HideConnSuggest(True);
+end;
+
+procedure TDatabaseComparerFrame.lbConnSuggestMouseDown(
+  Sender: TObject;
+  Button: TMouseButton;
+  Shift: TShiftState;
+  X, Y: Integer
+);
+var
+  Idx: Integer;
+  P: TConnectionProfile;
+  Combo: TComboBox;
+begin
+  if Button <> mbLeft then
+    Exit;
+  Idx := lbConnSuggest.ItemAtPos(Point(X, Y), True);
+  if (Idx >= 0) and (Idx < lbConnSuggest.Items.Count) then
+  begin
+    lbConnSuggest.ItemIndex := Idx;
+    P := TConnectionProfile(lbConnSuggest.Items.Objects[Idx]);
+    Combo := FActiveSuggestCombo;
+    if Combo <> nil then
+    begin
+      ApplySelectedProfileForCombo(Combo, P);
+      if Combo.CanFocus then
+        Combo.SetFocus;
+    end
+    else
+      HideConnSuggest(True);
+  end;
+end;
+
+procedure TDatabaseComparerFrame.lbConnSuggestKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+var
+  P: TConnectionProfile;
+  Combo: TComboBox;
+begin
+  Combo := FActiveSuggestCombo;
+  if Key = VK_RETURN then
+  begin
+    Key := 0;
+    if (lbConnSuggest.ItemIndex >= 0) and (lbConnSuggest.ItemIndex < lbConnSuggest.Items.Count) then
+    begin
+      P := TConnectionProfile(lbConnSuggest.Items.Objects[lbConnSuggest.ItemIndex]);
+      if Combo <> nil then
+      begin
+        ApplySelectedProfileForCombo(Combo, P);
+        if Combo.CanFocus then
+          Combo.SetFocus;
+      end;
+    end;
+  end
+  else if Key = VK_ESCAPE then
+  begin
+    Key := 0;
+    HideConnSuggest(True);
+    if (Combo <> nil) and Combo.CanFocus then
+      Combo.SetFocus;
+  end;
+end;
+
+procedure TDatabaseComparerFrame.lbConnSuggestExit(Sender: TObject);
+begin
+  if (not cbSourceConn.Focused) and (not cbTargetConn.Focused) then
+    HideConnSuggest(True);
+end;
+
 procedure TDatabaseComparerFrame.btnSwapConnsClick(Sender: TObject);
 var
-  OldSrcIdx, OldTgtIdx: Integer;
+  SrcProf, TgtProf: TConnectionProfile;
 begin
   if IsBusy then
     Exit;
-  OldSrcIdx := cbSourceConn.ItemIndex;
-  OldTgtIdx := cbTargetConn.ItemIndex;
-  cbSourceConn.ItemIndex := OldTgtIdx;
-  cbTargetConn.ItemIndex := OldSrcIdx;
-  cbSourceConnChange(nil);
-  cbTargetConnChange(nil);
+  SrcProf := SelectedSourceProfile;
+  TgtProf := SelectedTargetProfile;
+
+  if TgtProf <> nil then
+    ApplySelectedProfileForCombo(cbSourceConn, TgtProf)
+  else
+  begin
+    FIsUpdatingConnCombo := True;
+    try
+      cbSourceConn.ItemIndex := -1;
+      cbSourceConn.Text := '';
+    finally
+      FIsUpdatingConnCombo := False;
+    end;
+    FSourceProfileId := '';
+  end;
+
+  if SrcProf <> nil then
+    ApplySelectedProfileForCombo(cbTargetConn, SrcProf)
+  else
+  begin
+    FIsUpdatingConnCombo := True;
+    try
+      cbTargetConn.ItemIndex := -1;
+      cbTargetConn.Text := '';
+    finally
+      FIsUpdatingConnCombo := False;
+    end;
+    FTargetProfileId := '';
+  end;
 end;
 
 procedure TDatabaseComparerFrame.cbSourceConnChange(Sender: TObject);
+var
+  Idx: Integer;
+  Profile: TConnectionProfile;
 begin
-  if SelectedSourceProfile <> nil then
+  if FIsUpdatingConnCombo or IsBusy then
+    Exit;
+
+  Idx := cbSourceConn.ItemIndex;
+  if (Idx >= 0) and (Idx < cbSourceConn.Items.Count) and
+     SameText(cbSourceConn.Text, cbSourceConn.Items[Idx]) then
   begin
-    FSourceProfileId := SelectedSourceProfile.Id;
-    UpdateDialectForProfile(SelectedSourceProfile);
-  end
-  else
-    FSourceProfileId := '';
+    Profile := TConnectionProfile(cbSourceConn.Items.Objects[Idx]);
+    if Profile <> nil then
+      ApplySelectedProfileForCombo(cbSourceConn, Profile);
+    Exit;
+  end;
+
+  UpdateConnSuggestList(cbSourceConn, cbSourceConn.Text);
 end;
 
 procedure TDatabaseComparerFrame.cbTargetConnChange(Sender: TObject);
+var
+  Idx: Integer;
+  Profile: TConnectionProfile;
 begin
-  if SelectedTargetProfile <> nil then
-    FTargetProfileId := SelectedTargetProfile.Id
-  else
-    FTargetProfileId := '';
+  if FIsUpdatingConnCombo or IsBusy then
+    Exit;
+
+  Idx := cbTargetConn.ItemIndex;
+  if (Idx >= 0) and (Idx < cbTargetConn.Items.Count) and
+     SameText(cbTargetConn.Text, cbTargetConn.Items[Idx]) then
+  begin
+    Profile := TConnectionProfile(cbTargetConn.Items.Objects[Idx]);
+    if Profile <> nil then
+      ApplySelectedProfileForCombo(cbTargetConn, Profile);
+    Exit;
+  end;
+
+  UpdateConnSuggestList(cbTargetConn, cbTargetConn.Text);
 end;
 
 procedure TDatabaseComparerFrame.btnCompareClick(Sender: TObject);

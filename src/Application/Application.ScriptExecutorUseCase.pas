@@ -946,10 +946,23 @@ begin
   try
     if Trim(FOptions.LogToFilePath) <> '' then
     begin
-      LogStream := TFileStream.Create(Trim(FOptions.LogToFilePath), fmCreate);
-      LogStream.WriteBuffer(UTF8_BOM[1], Length(UTF8_BOM));
-      WriteLogFileLine(Format('=== Script Executive Log (%s) ===',
-        [FormatDateTime('yyyy-mm-dd hh:nn:ss', Now)]));
+      if FOptions.AppendLogFile and FileExists(Trim(FOptions.LogToFilePath)) then
+      begin
+        LogStream := TFileStream.Create(Trim(FOptions.LogToFilePath), fmOpenReadWrite or fmShareDenyWrite);
+        LogStream.Seek(0, soEnd);
+        WriteLogFileLine('');
+      end
+      else
+      begin
+        LogStream := TFileStream.Create(Trim(FOptions.LogToFilePath), fmCreate);
+        LogStream.WriteBuffer(UTF8_BOM[1], Length(UTF8_BOM));
+      end;
+      if Trim(FOptions.TargetDatabaseName) <> '' then
+        WriteLogFileLine(Format('=== Script Executive Log (%s) | Banco: %s ===',
+          [FormatDateTime('yyyy-mm-dd hh:nn:ss', Now), FOptions.TargetDatabaseName]))
+      else
+        WriteLogFileLine(Format('=== Script Executive Log (%s) ===',
+          [FormatDateTime('yyyy-mm-dd hh:nn:ss', Now)]));
       WriteLogFileLine(Format('Modo de transação: %s | Comandos: %d',
         [ScriptCommitModeToStr(FOptions.CommitMode), Length(FStatements)]));
       WriteLogFileLine('');

@@ -216,6 +216,9 @@ type
     FLastDataResult: TQueryResult;
     FDataLoaded: Boolean;
     lbWhereSuggest: TListBox;
+    miDebugTriggerSep: TMenuItem;
+    miDebugTriggerSub: TMenuItem;
+    FLastDebugDataRowIdx: Integer;
     btnExportDataCsv: TButton;
     btnImportData: TButton;
     btnDropTable: TButton;
@@ -294,6 +297,8 @@ type
       const ANewIsNull: Boolean; const ANewValue: string; out AError: string): Boolean;
     function HandleDataGridInsertRow(const ANewRow: TQueryRow; out AError: string): Boolean;
     function HandleDataGridDeleteRow(const AOldRow: TQueryRow; out AError: string): Boolean;
+    procedure HandleDataGridBeforePopup(Sender: TObject; const APopupMenu: TPopupMenu; const ADataRowIndex: Integer);
+    procedure HandleDebugTriggerMenuClick(Sender: TObject);
   public
     constructor Create(AOwner: TComponent); override;
     destructor Destroy; override;
@@ -316,7 +321,10 @@ type
 implementation
 
 uses
-  Presentation.DataImportForm;
+  Domain.PsqlDebugger,
+  Presentation.DataImportForm,
+  Presentation.TriggerDebugValuesForm,
+  Presentation.ProcedureDebugForm;
 
 {$R *.lfm}
 
@@ -741,6 +749,7 @@ begin
     FDataGrid.OnUpdateCell := @HandleDataGridUpdateCell;
     FDataGrid.OnInsertRow := @HandleDataGridInsertRow;
     FDataGrid.OnDeleteRow := @HandleDataGridDeleteRow;
+    FDataGrid.OnBeforePopup := @HandleDataGridBeforePopup;
   end;
   FDataGrid.SetEditable(False);
   FDataGrid.SetResult(nil, True, False);
@@ -3524,6 +3533,127 @@ begin
   end;
   UpdateDataTransactionUI;
   LoadTableDataGrid;
+end;
+
+procedure TTableEditorFrame.HandleDataGridBeforePopup(
+  Sender: TObject;
+  const APopupMenu: TPopupMenu;
+  const ADataRowIndex: Integer
+);
+var
+  I: Integer;
+  Item: TMenuItem;
+  IsFirebird, HasValidRow: Boolean;
+begin
+  if APopupMenu = nil then
+    Exit;
+
+  if miDebugTriggerSep = nil then
+  begin
+    miDebugTriggerSep := TMenuItem.Create(APopupMenu);
+    miDebugTriggerSep.Caption := '-';
+    APopupMenu.Items.Add(miDebugTriggerSep);
+  end;
+
+  if miDebugTriggerSub = nil then
+  begin
+    miDebugTriggerSub := TMenuItem.Create(APopupMenu);
+    miDebugTriggerSub.Caption := 'Debugar Trigger...';
+    APopupMenu.Items.Add(miDebugTriggerSub);
+  end;
+
+  IsFirebird := (FProfile <> nil) and (FProfile.DatabaseType = dtFirebird);
+  miDebugTriggerSep.Visible := IsFirebird;
+  miDebugTriggerSub.Visible := IsFirebird;
+  if not IsFirebird then
+    Exit;
+
+  FLastDebugDataRowIdx := ADataRowIndex;
+  HasValidRow := (ADataRowIndex >= 0) and (FLastDataResult <> nil) and
+    (ADataRowIndex < FLastDataResult.RowCount);
+  miDebugTriggerSub.Enabled := HasValidRow;
+
+  miDebugTriggerSub.Clear;
+  if (FStructure = nil) or (Length(FStructure.Triggers) = 0) then
+  begin
+    Item := TMenuItem.Create(miDebugTriggerSub);
+    Item.Caption := '(Nenhuma trigger nesta tabela)';
+    Item.Enabled := False;
+    miDebugTriggerSub.Add(Item);
+    Exit;
+  end;
+
+  for I := 0 to High(FStructure.Triggers) do
+  begin
+    Item := TMenuItem.Create(miDebugTriggerSub);
+    Item.Caption := Format('%s (%s %s)', [
+      FStructure.Triggers[I].TriggerName,
+      FStructure.Triggers[I].Timing,
+      FStructure.Triggers[I].Events
+    ]);
+    Item.Tag := I;
+    Item.OnClick := @HandleDebugTriggerMenuClick;
+    miDebugTriggerSub.Add(Item);
+  end;
+end;
+
+procedure TTableEditorFrame.HandleDebugTriggerMenuClick(Sender: TObject);
+var
+  Idx: Integer;
+  Trig: TTableTriggerInfo;
+  ChosenEvent, TriggerDDL: string;
+  OldFields, NewFields: TDebugParamDeclArray;
+  Cols: TTableColumnInfoArray;
+begin
+  if not (Sender is TMenuItem) then
+    Exit;
+  if (FProfile = nil) or (FUseCase = nil) or (FStructure = nil) or (FLastDataResult = nil) then
+    Exit;
+
+  Idx := TMenuItem(Sender).Tag;
+  if (Idx < 0) or (Idx > High(FStructure.Triggers)) then
+    Exit;
+  if (FLastDebugDataRowIdx < 0) or (FLastDebugDataRowIdx >= FLastDataResult.RowCount) then
+    Exit;
+
+  Trig := FStructure.Triggers[Idx];
+  Cols := FStructure.Columns;
+  if not TTriggerDebugValuesForm.Execute(
+       FTableName,
+       Trig,
+       Cols,
+       FLastDataResult,
+       FLastDebugDataRowIdx,
+       ChosenEvent,
+       OldFields,
+       NewFields
+     ) then
+    Exit;
+
+  TriggerDDL := Trim(Trig.FullDDL);
+  if TriggerDDL = '' then
+    TriggerDDL := BuildFirebirdTriggerDDL(
+      FTableName,
+      Trig.TriggerName,
+      Trig.Timing,
+      Trig.HasInsert,
+      Trig.HasUpdate,
+      Trig.HasDelete,
+      Trig.IsActive,
+      Trig.Position,
+      Trig.SourceBody
+    );
+
+  TProcedureDebugForm.ExecuteTrigger(
+    FProfile,
+    FUseCase.Factory,
+    Trig.TriggerName,
+    FTableName,
+    ChosenEvent,
+    OldFields,
+    NewFields,
+    TriggerDDL
+  );
 end;
 
 end.

@@ -46,6 +46,8 @@ type
     ErrorPolicy: TScriptErrorPolicy;
     EchoSqlInLog: Boolean;
     LogToFilePath: string;
+    AppendLogFile: Boolean;
+    TargetDatabaseName: string;
   end;
 
   TScriptStatementStatus = (sssOk, sssError, sssCancelled);
@@ -95,6 +97,8 @@ begin
   Result.ErrorPolicy := sepStopOnError;
   Result.EchoSqlInLog := True;
   Result.LogToFilePath := '';
+  Result.AppendLogFile := False;
+  Result.TargetDatabaseName := '';
 end;
 
 function DefaultScriptExecutionSummary: TScriptExecutionSummary;

@@ -136,6 +136,64 @@ type
     FCompletionCtrl: TSqlCompletionController;
     FLinkCtrl: TSqlObjectLinkController;
     FOnOpenObject: TOpenDbObjectLinkEvent;
+    lbConnSuggest: TListBox;
+    FIsUpdatingConnCombo: Boolean;
+    btnMultiConns: TButton;
+    pnlMultiConnPopup: TPanel;
+    pnlMultiConnTop: TPanel;
+    edtMultiConnFilter: TEdit;
+    pnlMultiConnBtns: TFlowPanel;
+    btnMultiAll: TButton;
+    btnMultiNone: TButton;
+    btnMultiInvert: TButton;
+    btnMultiDone: TButton;
+    clbMultiConns: TCheckListBox;
+    FSelectedProfileIds: TStringList;
+    FIsUpdatingMultiConnList: Boolean;
+    FExecQueueProfiles: array of TConnectionProfile;
+    FExecQueueStmts: array of TParsedScriptStatementArray;
+    FExecQueueIndex: Integer;
+    FExecOptions: TScriptExecutionOptions;
+    FCurrentExecSession: IDatabaseSession;
+    FMultiTotalStatements: Integer;
+    FMultiCompletedStatementsBase: Integer;
+    FMultiTotalSuccessCount: Integer;
+    FMultiTotalErrorCount: Integer;
+    FMultiDbSuccessCount: Integer;
+    FMultiDbErrorCount: Integer;
+    FMultiFirstErrorFile: string;
+    FMultiFirstErrorLine: Integer;
+    function FormatProfileComboCaption(const AProfile: TConnectionProfile): string;
+    procedure EnsureConnSuggestBox;
+    procedure UpdateConnSuggestList(const AFilter: string);
+    procedure HideConnSuggest(const ARestoreText: Boolean);
+    procedure ApplySelectedProfile(const AProfile: TConnectionProfile);
+    procedure cbConnectionDropDown(Sender: TObject);
+    procedure cbConnectionKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure cbConnectionExit(Sender: TObject);
+    procedure lbConnSuggestMouseDown(Sender: TObject; Button: TMouseButton; Shift: TShiftState; X, Y: Integer);
+    procedure lbConnSuggestKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure lbConnSuggestExit(Sender: TObject);
+    procedure EnsureMultiConnControls;
+    procedure PopulateMultiConnCheckList(const AFilter: string);
+    procedure SyncMultiConnSelectionUI;
+    procedure ShowMultiConnPopup;
+    procedure HideMultiConnPopup;
+    procedure btnMultiConnsClick(Sender: TObject);
+    procedure edtMultiConnFilterChange(Sender: TObject);
+    procedure MultiConnPopupKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure clbMultiConnsClickCheck(Sender: TObject);
+    procedure btnMultiAllClick(Sender: TObject);
+    procedure btnMultiNoneClick(Sender: TObject);
+    procedure btnMultiInvertClick(Sender: TObject);
+    procedure btnMultiDoneClick(Sender: TObject);
+    procedure ClearExecQueue;
+    function ParseStatementsForProfile(
+      const AProfile: TConnectionProfile;
+      const AMode: Integer;
+      const ACheckedFiles: TStrings
+    ): TParsedScriptStatementArray;
+    procedure LaunchCurrentProfileWorker;
     function SelectedProfile: TConnectionProfile;
     function ExecuteCompletionMetadataQuery(const ASQL: string): TQueryResult;
     procedure HandleOpenObjectLink(const AProfile: TConnectionProfile;
@@ -218,6 +276,8 @@ begin
     end;
     FSession := nil;
   end;
+  ClearExecQueue;
+  FreeAndNil(FSelectedProfileIds);
   FreeAndNil(FQueueFilePaths);
   FreeAndNil(FProfiles);
   inherited Destroy;
@@ -231,6 +291,33 @@ procedure TScriptExecutorFrame.Initialize(
 begin
   FFactory := AFactory;
   FActiveProfileId := AInitialProfileId;
+  FIsUpdatingConnCombo := False;
+  FIsUpdatingMultiConnList := False;
+  FSelectedProfileIds := TStringList.Create;
+  if Trim(AInitialProfileId) <> '' then
+    FSelectedProfileIds.Add(Trim(AInitialProfileId));
+  FExecQueueIndex := 0;
+  FMultiTotalStatements := 0;
+  FMultiCompletedStatementsBase := 0;
+  FMultiTotalSuccessCount := 0;
+  FMultiTotalErrorCount := 0;
+  FMultiDbSuccessCount := 0;
+  FMultiDbErrorCount := 0;
+  FMultiFirstErrorFile := '';
+  FMultiFirstErrorLine := 0;
+
+  cbConnection.Style := csDropDown;
+  cbConnection.AutoComplete := False;
+  cbConnection.AutoSelect := True;
+  cbConnection.DropDownCount := 16;
+  cbConnection.Width := 230;
+  cbConnection.TextHint := 'Pesquisar conexão...';
+  cbConnection.OnDropDown := @cbConnectionDropDown;
+  cbConnection.OnKeyDown := @cbConnectionKeyDown;
+  cbConnection.OnExit := @cbConnectionExit;
+  EnsureConnSuggestBox;
+  EnsureMultiConnControls;
+
   FQueueFilePaths := TStringList.Create;
   FLoadedFilePath := '';
   FIsBusy := False;
@@ -291,7 +378,7 @@ begin
   grdStatements.FixedCols := 0;
   grdStatements.FixedRows := 1;
   grdStatements.Cells[0, 0] := '#';
-  grdStatements.Cells[1, 0] := 'Arquivo';
+  grdStatements.Cells[1, 0] := 'Banco / Arquivo';
   grdStatements.Cells[2, 0] := 'Linha';
   grdStatements.Cells[3, 0] := 'Status';
   grdStatements.Cells[4, 0] := 'Tempo';
@@ -300,7 +387,7 @@ begin
   grdStatements.Cells[7, 0] := 'Mensagem / Erro';
 
   grdStatements.ColWidths[0] := 42;
-  grdStatements.ColWidths[1] := 130;
+  grdStatements.ColWidths[1] := 170;
   grdStatements.ColWidths[2] := 50;
   grdStatements.ColWidths[3] := 75;
   grdStatements.ColWidths[4] := 70;
@@ -322,6 +409,7 @@ begin
   FreeAndNil(FProfiles);
   FProfiles := TConnectionProfileList.Create(True);
 
+  FIsUpdatingConnCombo := True;
   cbConnection.Items.BeginUpdate;
   try
     cbConnection.Items.Clear;
@@ -333,7 +421,7 @@ begin
         Cloned := Item.Clone;
         FProfiles.Add(Cloned);
         Idx := cbConnection.Items.AddObject(
-          Format('%s [%s]', [Cloned.Name, DatabaseTypeToStr(Cloned.DatabaseType)]),
+          FormatProfileComboCaption(Cloned),
           Cloned
         );
         if (TargetId <> '') and SameText(Cloned.Id, TargetId) then
@@ -345,6 +433,15 @@ begin
       SelectedIdx := 0;
 
     cbConnection.ItemIndex := SelectedIdx;
+    if (SelectedIdx >= 0) and (SelectedIdx < cbConnection.Items.Count) then
+      cbConnection.Text := cbConnection.Items[SelectedIdx]
+    else
+      cbConnection.Text := '';
+
+    if (FSelectedProfileIds <> nil) and (FSelectedProfileIds.Count = 0) and
+       (SelectedIdx >= 0) and (cbConnection.Items.Objects[SelectedIdx] <> nil) then
+      FSelectedProfileIds.Add(TConnectionProfile(cbConnection.Items.Objects[SelectedIdx]).Id);
+
     if SelectedProfile <> nil then
     begin
       FActiveProfileId := SelectedProfile.Id;
@@ -352,7 +449,13 @@ begin
     end;
   finally
     cbConnection.Items.EndUpdate;
+    FIsUpdatingConnCombo := False;
   end;
+
+  SyncMultiConnSelectionUI;
+  HideConnSuggest(False);
+  if (pnlMultiConnPopup <> nil) and pnlMultiConnPopup.Visible then
+    PopulateMultiConnCheckList(edtMultiConnFilter.Text);
 end;
 
 procedure TScriptExecutorFrame.SetScriptText(const AScriptText: string);
@@ -387,10 +490,22 @@ begin
 end;
 
 function TScriptExecutorFrame.SelectedProfile: TConnectionProfile;
+var
+  I: Integer;
 begin
   Result := nil;
   if (cbConnection.ItemIndex >= 0) and (cbConnection.ItemIndex < cbConnection.Items.Count) then
     Result := TConnectionProfile(cbConnection.Items.Objects[cbConnection.ItemIndex]);
+
+  if (Result = nil) and (FActiveProfileId <> '') then
+  begin
+    for I := 0 to cbConnection.Items.Count - 1 do
+    begin
+      if (cbConnection.Items.Objects[I] <> nil) and
+         SameText(TConnectionProfile(cbConnection.Items.Objects[I]).Id, FActiveProfileId) then
+        Exit(TConnectionProfile(cbConnection.Items.Objects[I]));
+    end;
+  end;
 end;
 
 function TScriptExecutorFrame.SelectedCommitMode: TScriptCommitMode;
@@ -686,6 +801,8 @@ procedure TScriptExecutorFrame.SetRunningState(const ARunning: Boolean; const AT
 begin
   FIsBusy := ARunning;
   cbConnection.Enabled := not ARunning;
+  if btnMultiConns <> nil then
+    btnMultiConns.Enabled := not ARunning;
   btnExecuteScript.Enabled := not ARunning;
   btnExecuteFromCursor.Enabled := not ARunning;
   btnExecuteSelection.Enabled := not ARunning;
@@ -707,6 +824,8 @@ begin
 
   if ARunning then
   begin
+    HideConnSuggest(False);
+    HideMultiConnPopup;
     FBaseTabCaption := BaseTabCaption;
     FCancelRequested := False;
     FExecStartTick := GetTickCount64;
@@ -742,17 +861,542 @@ begin
   UpdateLayouts;
 end;
 
-procedure TScriptExecutorFrame.cbConnectionChange(Sender: TObject);
-var
-  Profile: TConnectionProfile;
+function TScriptExecutorFrame.FormatProfileComboCaption(const AProfile: TConnectionProfile): string;
 begin
-  if FIsBusy then
-    Exit;
-  Profile := SelectedProfile;
-  if (Profile <> nil) and SameText(Profile.Id, FActiveProfileId) then
+  if AProfile = nil then
+    Exit('');
+  if Trim(AProfile.Folder) <> '' then
+    Result := Format('%s [%s] (%s)', [AProfile.Name, Trim(AProfile.Folder), DatabaseTypeToStr(AProfile.DatabaseType)])
+  else
+    Result := Format('%s (%s)', [AProfile.Name, DatabaseTypeToStr(AProfile.DatabaseType)]);
+end;
+
+procedure TScriptExecutorFrame.EnsureConnSuggestBox;
+begin
+  if lbConnSuggest <> nil then
     Exit;
 
-  if FSession <> nil then
+  lbConnSuggest := TListBox.Create(Self);
+  lbConnSuggest.Parent := Self;
+  lbConnSuggest.Visible := False;
+  lbConnSuggest.TabStop := False;
+  lbConnSuggest.Font.Assign(cbConnection.Font);
+  lbConnSuggest.OnMouseDown := @lbConnSuggestMouseDown;
+  lbConnSuggest.OnKeyDown := @lbConnSuggestKeyDown;
+  lbConnSuggest.OnExit := @lbConnSuggestExit;
+end;
+
+procedure TScriptExecutorFrame.HideConnSuggest(const ARestoreText: Boolean);
+begin
+  if lbConnSuggest <> nil then
+    lbConnSuggest.Visible := False;
+
+  if ARestoreText then
+    SyncMultiConnSelectionUI;
+end;
+
+procedure TScriptExecutorFrame.cbConnectionDropDown(Sender: TObject);
+begin
+  if lbConnSuggest <> nil then
+    lbConnSuggest.Visible := False;
+  HideMultiConnPopup;
+end;
+
+procedure TScriptExecutorFrame.UpdateConnSuggestList(const AFilter: string);
+var
+  Q, Haystack, CurText: string;
+  I, ItemH, MaxH, CurSel: Integer;
+  P: TConnectionProfile;
+  ScreenPt, ClientPt: TPoint;
+begin
+  EnsureConnSuggestBox;
+  HideMultiConnPopup;
+
+  if cbConnection.DroppedDown then
+  begin
+    CurText := cbConnection.Text;
+    CurSel := cbConnection.SelStart;
+    FIsUpdatingConnCombo := True;
+    try
+      cbConnection.DroppedDown := False;
+      if cbConnection.Text <> CurText then
+        cbConnection.Text := CurText;
+      cbConnection.SelStart := CurSel;
+      cbConnection.SelLength := 0;
+    finally
+      FIsUpdatingConnCombo := False;
+    end;
+  end;
+
+  Q := LowerCase(Trim(AFilter));
+  if Q = '' then
+  begin
+    lbConnSuggest.Visible := False;
+    Exit;
+  end;
+
+  lbConnSuggest.Items.BeginUpdate;
+  try
+    lbConnSuggest.Items.Clear;
+    for I := 0 to cbConnection.Items.Count - 1 do
+    begin
+      P := TConnectionProfile(cbConnection.Items.Objects[I]);
+      if P = nil then
+        Continue;
+      Haystack := LowerCase(
+        P.Name + ' ' + P.Folder + ' ' + P.Database + ' ' + P.Host + ' ' + DatabaseTypeToStr(P.DatabaseType)
+      );
+      if Pos(Q, Haystack) > 0 then
+        lbConnSuggest.Items.AddObject(cbConnection.Items[I], P);
+    end;
+  finally
+    lbConnSuggest.Items.EndUpdate;
+  end;
+
+  if lbConnSuggest.Items.Count = 0 then
+  begin
+    lbConnSuggest.Visible := False;
+    Exit;
+  end;
+
+  ScreenPt := cbConnection.ClientToScreen(Point(0, cbConnection.Height));
+  ClientPt := ScreenToClient(ScreenPt);
+  lbConnSuggest.Left := ClientPt.X;
+  lbConnSuggest.Top := ClientPt.Y + 1;
+  lbConnSuggest.Width := Max(cbConnection.Width, 340);
+  if lbConnSuggest.Left + lbConnSuggest.Width > ClientWidth - 4 then
+    lbConnSuggest.Width := Max(cbConnection.Width, ClientWidth - lbConnSuggest.Left - 4);
+  ItemH := 18;
+  MaxH := Min(12, lbConnSuggest.Items.Count) * ItemH + 6;
+  lbConnSuggest.Height := MaxH;
+  lbConnSuggest.ItemIndex := 0;
+  lbConnSuggest.Visible := True;
+  lbConnSuggest.BringToFront;
+end;
+
+procedure TScriptExecutorFrame.ApplySelectedProfile(const AProfile: TConnectionProfile);
+var
+  WasSameSingle: Boolean;
+begin
+  if FIsBusy or (AProfile = nil) then
+    Exit;
+
+  WasSameSingle := (FSelectedProfileIds <> nil) and
+    (FSelectedProfileIds.Count = 1) and
+    SameText(FSelectedProfileIds[0], AProfile.Id) and
+    SameText(AProfile.Id, FActiveProfileId);
+
+  if FSelectedProfileIds <> nil then
+  begin
+    FSelectedProfileIds.Clear;
+    FSelectedProfileIds.Add(AProfile.Id);
+  end;
+
+  if lbConnSuggest <> nil then
+    lbConnSuggest.Visible := False;
+
+  SyncMultiConnSelectionUI;
+
+  if (pnlMultiConnPopup <> nil) and pnlMultiConnPopup.Visible then
+    PopulateMultiConnCheckList(edtMultiConnFilter.Text);
+
+  if not WasSameSingle then
+    LogMessage('Conexão alterada para: ' + AProfile.Name);
+end;
+
+procedure TScriptExecutorFrame.cbConnectionChange(Sender: TObject);
+var
+  Idx: Integer;
+  Profile: TConnectionProfile;
+begin
+  if FIsUpdatingConnCombo or FIsBusy then
+    Exit;
+
+  Idx := cbConnection.ItemIndex;
+  if (Idx >= 0) and (Idx < cbConnection.Items.Count) and
+     SameText(cbConnection.Text, cbConnection.Items[Idx]) then
+  begin
+    Profile := TConnectionProfile(cbConnection.Items.Objects[Idx]);
+    if Profile <> nil then
+      ApplySelectedProfile(Profile);
+    Exit;
+  end;
+
+  UpdateConnSuggestList(cbConnection.Text);
+end;
+
+procedure TScriptExecutorFrame.cbConnectionKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+var
+  P: TConnectionProfile;
+  NewIdx: Integer;
+begin
+  if (lbConnSuggest <> nil) and lbConnSuggest.Visible and (lbConnSuggest.Items.Count > 0) then
+  begin
+    if Key = VK_DOWN then
+    begin
+      Key := 0;
+      NewIdx := lbConnSuggest.ItemIndex + 1;
+      if NewIdx >= lbConnSuggest.Items.Count then
+        NewIdx := 0;
+      lbConnSuggest.ItemIndex := NewIdx;
+      Exit;
+    end
+    else if Key = VK_UP then
+    begin
+      Key := 0;
+      NewIdx := lbConnSuggest.ItemIndex - 1;
+      if NewIdx < 0 then
+        NewIdx := lbConnSuggest.Items.Count - 1;
+      lbConnSuggest.ItemIndex := NewIdx;
+      Exit;
+    end
+    else if Key = VK_RETURN then
+    begin
+      Key := 0;
+      if lbConnSuggest.ItemIndex < 0 then
+        lbConnSuggest.ItemIndex := 0;
+      if (lbConnSuggest.ItemIndex >= 0) and (lbConnSuggest.ItemIndex < lbConnSuggest.Items.Count) then
+      begin
+        P := TConnectionProfile(lbConnSuggest.Items.Objects[lbConnSuggest.ItemIndex]);
+        ApplySelectedProfile(P);
+        if SynEdit1.CanFocus then
+          SynEdit1.SetFocus;
+      end;
+      Exit;
+    end
+    else if Key = VK_ESCAPE then
+    begin
+      Key := 0;
+      HideConnSuggest(True);
+      Exit;
+    end;
+  end
+  else if Key = VK_ESCAPE then
+  begin
+    Key := 0;
+    HideConnSuggest(True);
+  end;
+end;
+
+procedure TScriptExecutorFrame.cbConnectionExit(Sender: TObject);
+begin
+  if (lbConnSuggest <> nil) and lbConnSuggest.Focused then
+    Exit;
+  HideConnSuggest(True);
+end;
+
+procedure TScriptExecutorFrame.lbConnSuggestMouseDown(
+  Sender: TObject;
+  Button: TMouseButton;
+  Shift: TShiftState;
+  X, Y: Integer
+);
+var
+  Idx: Integer;
+  P: TConnectionProfile;
+begin
+  if Button <> mbLeft then
+    Exit;
+  Idx := lbConnSuggest.ItemAtPos(Point(X, Y), True);
+  if (Idx >= 0) and (Idx < lbConnSuggest.Items.Count) then
+  begin
+    lbConnSuggest.ItemIndex := Idx;
+    P := TConnectionProfile(lbConnSuggest.Items.Objects[Idx]);
+    ApplySelectedProfile(P);
+    if SynEdit1.CanFocus then
+      SynEdit1.SetFocus;
+  end;
+end;
+
+procedure TScriptExecutorFrame.lbConnSuggestKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+var
+  P: TConnectionProfile;
+begin
+  if Key = VK_RETURN then
+  begin
+    Key := 0;
+    if (lbConnSuggest.ItemIndex >= 0) and (lbConnSuggest.ItemIndex < lbConnSuggest.Items.Count) then
+    begin
+      P := TConnectionProfile(lbConnSuggest.Items.Objects[lbConnSuggest.ItemIndex]);
+      ApplySelectedProfile(P);
+      if SynEdit1.CanFocus then
+        SynEdit1.SetFocus;
+    end;
+  end
+  else if Key = VK_ESCAPE then
+  begin
+    Key := 0;
+    HideConnSuggest(True);
+    if cbConnection.CanFocus then
+      cbConnection.SetFocus;
+  end;
+end;
+
+procedure TScriptExecutorFrame.lbConnSuggestExit(Sender: TObject);
+begin
+  if not cbConnection.Focused then
+    HideConnSuggest(True);
+end;
+
+procedure TScriptExecutorFrame.EnsureMultiConnControls;
+var
+  FlowItem: TControl;
+begin
+  if btnMultiConns = nil then
+  begin
+    btnMultiConns := TButton.Create(Self);
+    btnMultiConns.Parent := pnlToolbar;
+    btnMultiConns.Anchors := [];
+    btnMultiConns.AutoSize := True;
+    btnMultiConns.BorderSpacing.Left := 2;
+    btnMultiConns.BorderSpacing.Top := 2;
+    btnMultiConns.BorderSpacing.Right := 6;
+    btnMultiConns.BorderSpacing.Bottom := 2;
+    btnMultiConns.Constraints.MinHeight := 26;
+    btnMultiConns.Caption := 'Bancos (1) ▼';
+    btnMultiConns.ParentShowHint := False;
+    btnMultiConns.ShowHint := True;
+    btnMultiConns.Hint := 'Selecionar um ou mais bancos de dados para executar o mesmo script';
+    btnMultiConns.OnClick := @btnMultiConnsClick;
+    if (pnlToolbar <> nil) and (pnlToolbar.ControlList.Count > 2) then
+      pnlToolbar.ControlList[pnlToolbar.ControlList.Count - 1].Index := 2;
+  end;
+
+  if pnlMultiConnPopup = nil then
+  begin
+    pnlMultiConnPopup := TPanel.Create(Self);
+    pnlMultiConnPopup.Parent := Self;
+    pnlMultiConnPopup.Visible := False;
+    pnlMultiConnPopup.Width := 380;
+    pnlMultiConnPopup.Height := 310;
+    pnlMultiConnPopup.BevelOuter := bvRaised;
+    pnlMultiConnPopup.BorderStyle := bsSingle;
+
+    pnlMultiConnTop := TPanel.Create(Self);
+    pnlMultiConnTop.Parent := pnlMultiConnPopup;
+    pnlMultiConnTop.Align := alTop;
+    pnlMultiConnTop.AutoSize := True;
+    pnlMultiConnTop.BevelOuter := bvNone;
+
+    edtMultiConnFilter := TEdit.Create(Self);
+    edtMultiConnFilter.Parent := pnlMultiConnTop;
+    edtMultiConnFilter.Align := alTop;
+    edtMultiConnFilter.BorderSpacing.Around := 4;
+    edtMultiConnFilter.TextHint := 'Pesquisar banco (nome, pasta, host, caminho)...';
+    edtMultiConnFilter.OnChange := @edtMultiConnFilterChange;
+    edtMultiConnFilter.OnKeyDown := @MultiConnPopupKeyDown;
+
+    pnlMultiConnBtns := TFlowPanel.Create(Self);
+    pnlMultiConnBtns.Parent := pnlMultiConnTop;
+    pnlMultiConnBtns.Align := alTop;
+    pnlMultiConnBtns.AutoSize := True;
+    pnlMultiConnBtns.AutoWrap := True;
+    pnlMultiConnBtns.BevelOuter := bvNone;
+    pnlMultiConnBtns.BorderSpacing.Left := 4;
+    pnlMultiConnBtns.BorderSpacing.Right := 4;
+    pnlMultiConnBtns.BorderSpacing.Bottom := 4;
+
+    btnMultiAll := TButton.Create(Self);
+    btnMultiAll.Parent := pnlMultiConnBtns;
+    btnMultiAll.AutoSize := True;
+    btnMultiAll.Constraints.MinHeight := 24;
+    btnMultiAll.BorderSpacing.Right := 4;
+    btnMultiAll.Caption := 'Marcar Visíveis';
+    btnMultiAll.OnClick := @btnMultiAllClick;
+
+    btnMultiNone := TButton.Create(Self);
+    btnMultiNone.Parent := pnlMultiConnBtns;
+    btnMultiNone.AutoSize := True;
+    btnMultiNone.Constraints.MinHeight := 24;
+    btnMultiNone.BorderSpacing.Right := 4;
+    btnMultiNone.Caption := 'Desmarcar Todos';
+    btnMultiNone.OnClick := @btnMultiNoneClick;
+
+    btnMultiInvert := TButton.Create(Self);
+    btnMultiInvert.Parent := pnlMultiConnBtns;
+    btnMultiInvert.AutoSize := True;
+    btnMultiInvert.Constraints.MinHeight := 24;
+    btnMultiInvert.BorderSpacing.Right := 4;
+    btnMultiInvert.Caption := 'Inverter';
+    btnMultiInvert.OnClick := @btnMultiInvertClick;
+
+    btnMultiDone := TButton.Create(Self);
+    btnMultiDone.Parent := pnlMultiConnBtns;
+    btnMultiDone.AutoSize := True;
+    btnMultiDone.Constraints.MinHeight := 24;
+    btnMultiDone.Caption := 'Concluir';
+    btnMultiDone.OnClick := @btnMultiDoneClick;
+
+    clbMultiConns := TCheckListBox.Create(Self);
+    clbMultiConns.Parent := pnlMultiConnPopup;
+    clbMultiConns.Align := alClient;
+    clbMultiConns.BorderSpacing.Left := 4;
+    clbMultiConns.BorderSpacing.Right := 4;
+    clbMultiConns.BorderSpacing.Bottom := 4;
+    clbMultiConns.OnClickCheck := @clbMultiConnsClickCheck;
+    clbMultiConns.OnKeyDown := @MultiConnPopupKeyDown;
+  end;
+  FlowItem := nil;
+  if FlowItem <> nil then
+    FlowItem.Visible := True;
+end;
+
+procedure TScriptExecutorFrame.PopulateMultiConnCheckList(const AFilter: string);
+var
+  Q, Haystack, SelectedId: string;
+  I, NewIdx: Integer;
+  P: TConnectionProfile;
+  IsChecked: Boolean;
+begin
+  if (clbMultiConns = nil) or (FProfiles = nil) then
+    Exit;
+
+  Q := LowerCase(Trim(AFilter));
+  FIsUpdatingMultiConnList := True;
+  clbMultiConns.Items.BeginUpdate;
+  try
+    clbMultiConns.Items.Clear;
+    for I := 0 to FProfiles.Count - 1 do
+    begin
+      P := FProfiles[I];
+      if P = nil then
+        Continue;
+      if Q <> '' then
+      begin
+        Haystack := LowerCase(
+          P.Name + ' ' + P.Folder + ' ' + P.Database + ' ' + P.Host + ' ' + DatabaseTypeToStr(P.DatabaseType)
+        );
+        if Pos(Q, Haystack) = 0 then
+          Continue;
+      end;
+
+      NewIdx := clbMultiConns.Items.AddObject(FormatProfileComboCaption(P), P);
+      IsChecked := False;
+      if FSelectedProfileIds <> nil then
+      begin
+        for SelectedId in FSelectedProfileIds do
+          if SameText(SelectedId, P.Id) then
+          begin
+            IsChecked := True;
+            Break;
+          end;
+      end;
+      clbMultiConns.Checked[NewIdx] := IsChecked;
+    end;
+  finally
+    clbMultiConns.Items.EndUpdate;
+    FIsUpdatingMultiConnList := False;
+  end;
+end;
+
+procedure TScriptExecutorFrame.SyncMultiConnSelectionUI;
+var
+  I, J, MatchIdx: Integer;
+  P, FirstProfile: TConnectionProfile;
+  Found: Boolean;
+  NamesList, OldActiveId: string;
+begin
+  if FSelectedProfileIds = nil then
+    Exit;
+
+  OldActiveId := FActiveProfileId;
+
+  { Remove IDs que não existem mais em FProfiles }
+  for I := FSelectedProfileIds.Count - 1 downto 0 do
+  begin
+    Found := False;
+    if FProfiles <> nil then
+    begin
+      for J := 0 to FProfiles.Count - 1 do
+      begin
+        if SameText(FProfiles[J].Id, FSelectedProfileIds[I]) then
+        begin
+          Found := True;
+          Break;
+        end;
+      end;
+    end;
+    if not Found then
+      FSelectedProfileIds.Delete(I);
+  end;
+
+  FirstProfile := nil;
+  NamesList := '';
+  if FProfiles <> nil then
+  begin
+    for I := 0 to FProfiles.Count - 1 do
+    begin
+      P := FProfiles[I];
+      Found := False;
+      for J := 0 to FSelectedProfileIds.Count - 1 do
+      begin
+        if SameText(FSelectedProfileIds[J], P.Id) then
+        begin
+          Found := True;
+          Break;
+        end;
+      end;
+      if Found then
+      begin
+        if FirstProfile = nil then
+          FirstProfile := P;
+        if NamesList <> '' then
+          NamesList := NamesList + LineEnding;
+        NamesList := NamesList + '• ' + FormatProfileComboCaption(P);
+      end;
+    end;
+  end;
+
+  if btnMultiConns <> nil then
+  begin
+    btnMultiConns.Caption := Format('Bancos (%d) ▼', [FSelectedProfileIds.Count]);
+    if NamesList <> '' then
+      btnMultiConns.Hint := 'Bancos selecionados para executar o script:' + LineEnding + NamesList
+    else
+      btnMultiConns.Hint := 'Selecionar um ou mais bancos de dados para executar o mesmo script';
+  end;
+
+  FIsUpdatingConnCombo := True;
+  try
+    if (FSelectedProfileIds.Count = 1) and (FirstProfile <> nil) then
+    begin
+      MatchIdx := -1;
+      for I := 0 to cbConnection.Items.Count - 1 do
+      begin
+        if (cbConnection.Items.Objects[I] <> nil) and
+           SameText(TConnectionProfile(cbConnection.Items.Objects[I]).Id, FirstProfile.Id) then
+        begin
+          MatchIdx := I;
+          Break;
+        end;
+      end;
+      cbConnection.ItemIndex := MatchIdx;
+      if MatchIdx >= 0 then
+        cbConnection.Text := cbConnection.Items[MatchIdx]
+      else
+        cbConnection.Text := '';
+      FActiveProfileId := FirstProfile.Id;
+      ApplyHighlighterForProfile(FirstProfile);
+    end
+    else if (FSelectedProfileIds.Count > 1) and (FirstProfile <> nil) then
+    begin
+      cbConnection.ItemIndex := -1;
+      cbConnection.Text := Format('(%d bancos selecionados)', [FSelectedProfileIds.Count]);
+      FActiveProfileId := FirstProfile.Id;
+      ApplyHighlighterForProfile(FirstProfile);
+    end
+    else
+    begin
+      cbConnection.ItemIndex := -1;
+      cbConnection.Text := '';
+      FActiveProfileId := '';
+    end;
+  finally
+    FIsUpdatingConnCombo := False;
+  end;
+
+  if (not FIsBusy) and (FSession <> nil) and
+     ((FSelectedProfileIds.Count <> 1) or (not SameText(OldActiveId, FActiveProfileId))) then
   begin
     try
       if FSession.InTransaction then
@@ -761,19 +1405,204 @@ begin
     except
     end;
     FSession := nil;
-  end;
-
-  if Profile <> nil then
-  begin
-    FActiveProfileId := Profile.Id;
-    ApplyHighlighterForProfile(Profile);
     ClearMetadataCache;
-    LogMessage('Conexão alterada para: ' + Profile.Name);
+    UpdateTransactionUI;
   end
-  else
-    FActiveProfileId := '';
+  else if (not FIsBusy) and (not SameText(OldActiveId, FActiveProfileId)) then
+    ClearMetadataCache;
 
-  UpdateTransactionUI;
+  UpdateLayouts;
+end;
+
+procedure TScriptExecutorFrame.ShowMultiConnPopup;
+var
+  ScreenPt, ClientPt: TPoint;
+begin
+  EnsureMultiConnControls;
+  HideConnSuggest(False);
+
+  ScreenPt := btnMultiConns.ClientToScreen(Point(0, btnMultiConns.Height));
+  ClientPt := ScreenToClient(ScreenPt);
+  pnlMultiConnPopup.Left := ClientPt.X;
+  if pnlMultiConnPopup.Left + pnlMultiConnPopup.Width > ClientWidth - 4 then
+    pnlMultiConnPopup.Left := Max(4, ClientWidth - pnlMultiConnPopup.Width - 4);
+  pnlMultiConnPopup.Top := ClientPt.Y + 2;
+  pnlMultiConnPopup.Height := Min(310, Max(180, ClientHeight - pnlMultiConnPopup.Top - 4));
+
+  FIsUpdatingMultiConnList := True;
+  try
+    edtMultiConnFilter.Text := '';
+  finally
+    FIsUpdatingMultiConnList := False;
+  end;
+  PopulateMultiConnCheckList('');
+  pnlMultiConnPopup.Visible := True;
+  pnlMultiConnPopup.BringToFront;
+  if edtMultiConnFilter.CanFocus then
+    edtMultiConnFilter.SetFocus;
+end;
+
+procedure TScriptExecutorFrame.HideMultiConnPopup;
+begin
+  if pnlMultiConnPopup <> nil then
+    pnlMultiConnPopup.Visible := False;
+end;
+
+procedure TScriptExecutorFrame.btnMultiConnsClick(Sender: TObject);
+begin
+  if FIsBusy then
+    Exit;
+  EnsureMultiConnControls;
+  if pnlMultiConnPopup.Visible then
+    HideMultiConnPopup
+  else
+    ShowMultiConnPopup;
+end;
+
+procedure TScriptExecutorFrame.edtMultiConnFilterChange(Sender: TObject);
+begin
+  if FIsUpdatingMultiConnList then
+    Exit;
+  PopulateMultiConnCheckList(edtMultiConnFilter.Text);
+end;
+
+procedure TScriptExecutorFrame.MultiConnPopupKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+begin
+  if Key = VK_ESCAPE then
+  begin
+    Key := 0;
+    HideMultiConnPopup;
+  end;
+end;
+
+procedure TScriptExecutorFrame.clbMultiConnsClickCheck(Sender: TObject);
+var
+  I, J, FoundIdx: Integer;
+  P: TConnectionProfile;
+begin
+  if FIsUpdatingMultiConnList or (FSelectedProfileIds = nil) then
+    Exit;
+
+  for I := 0 to clbMultiConns.Items.Count - 1 do
+  begin
+    P := TConnectionProfile(clbMultiConns.Items.Objects[I]);
+    if P = nil then
+      Continue;
+    FoundIdx := -1;
+    for J := 0 to FSelectedProfileIds.Count - 1 do
+    begin
+      if SameText(FSelectedProfileIds[J], P.Id) then
+      begin
+        FoundIdx := J;
+        Break;
+      end;
+    end;
+    if clbMultiConns.Checked[I] then
+    begin
+      if FoundIdx < 0 then
+        FSelectedProfileIds.Add(P.Id);
+    end
+    else if FoundIdx >= 0 then
+      FSelectedProfileIds.Delete(FoundIdx);
+  end;
+  SyncMultiConnSelectionUI;
+end;
+
+procedure TScriptExecutorFrame.btnMultiAllClick(Sender: TObject);
+var
+  I, J: Integer;
+  P: TConnectionProfile;
+  Exists: Boolean;
+begin
+  if (clbMultiConns = nil) or (FSelectedProfileIds = nil) then
+    Exit;
+
+  FIsUpdatingMultiConnList := True;
+  try
+    for I := 0 to clbMultiConns.Items.Count - 1 do
+    begin
+      clbMultiConns.Checked[I] := True;
+      P := TConnectionProfile(clbMultiConns.Items.Objects[I]);
+      if P = nil then
+        Continue;
+      Exists := False;
+      for J := 0 to FSelectedProfileIds.Count - 1 do
+      begin
+        if SameText(FSelectedProfileIds[J], P.Id) then
+        begin
+          Exists := True;
+          Break;
+        end;
+      end;
+      if not Exists then
+        FSelectedProfileIds.Add(P.Id);
+    end;
+  finally
+    FIsUpdatingMultiConnList := False;
+  end;
+  SyncMultiConnSelectionUI;
+end;
+
+procedure TScriptExecutorFrame.btnMultiNoneClick(Sender: TObject);
+var
+  I: Integer;
+begin
+  if (clbMultiConns = nil) or (FSelectedProfileIds = nil) then
+    Exit;
+
+  FIsUpdatingMultiConnList := True;
+  try
+    for I := 0 to clbMultiConns.Items.Count - 1 do
+      clbMultiConns.Checked[I] := False;
+    FSelectedProfileIds.Clear;
+  finally
+    FIsUpdatingMultiConnList := False;
+  end;
+  SyncMultiConnSelectionUI;
+end;
+
+procedure TScriptExecutorFrame.btnMultiInvertClick(Sender: TObject);
+var
+  I, J, FoundIdx: Integer;
+  P: TConnectionProfile;
+begin
+  if (clbMultiConns = nil) or (FSelectedProfileIds = nil) then
+    Exit;
+
+  FIsUpdatingMultiConnList := True;
+  try
+    for I := 0 to clbMultiConns.Items.Count - 1 do
+    begin
+      clbMultiConns.Checked[I] := not clbMultiConns.Checked[I];
+      P := TConnectionProfile(clbMultiConns.Items.Objects[I]);
+      if P = nil then
+        Continue;
+      FoundIdx := -1;
+      for J := 0 to FSelectedProfileIds.Count - 1 do
+      begin
+        if SameText(FSelectedProfileIds[J], P.Id) then
+        begin
+          FoundIdx := J;
+          Break;
+        end;
+      end;
+      if clbMultiConns.Checked[I] then
+      begin
+        if FoundIdx < 0 then
+          FSelectedProfileIds.Add(P.Id);
+      end
+      else if FoundIdx >= 0 then
+        FSelectedProfileIds.Delete(FoundIdx);
+    end;
+  finally
+    FIsUpdatingMultiConnList := False;
+  end;
+  SyncMultiConnSelectionUI;
+end;
+
+procedure TScriptExecutorFrame.btnMultiDoneClick(Sender: TObject);
+begin
+  HideMultiConnPopup;
 end;
 
 procedure TScriptExecutorFrame.cbCommitModeChange(Sender: TObject);
@@ -799,15 +1628,183 @@ begin
     edtLogFile.Text := dlgSaveLog.FileName;
 end;
 
-procedure TScriptExecutorFrame.StartScriptExecution(const AMode: Integer);
+procedure TScriptExecutorFrame.ClearExecQueue;
 var
-  Profile: TConnectionProfile;
+  I: Integer;
+begin
+  for I := 0 to High(FExecQueueProfiles) do
+    FExecQueueProfiles[I].Free;
+  SetLength(FExecQueueProfiles, 0);
+  SetLength(FExecQueueStmts, 0);
+  FExecQueueIndex := 0;
+end;
+
+function TScriptExecutorFrame.ParseStatementsForProfile(
+  const AProfile: TConnectionProfile;
+  const AMode: Integer;
+  const ACheckedFiles: TStrings
+): TParsedScriptStatementArray;
+var
   ScriptText, SourceLabel, BaseDir: string;
   LineOffset, I, StartY: Integer;
-  CheckedFiles, TempLines: TStringList;
-  Stmts: TParsedScriptStatementArray;
-  Opts: TScriptExecutionOptions;
+  TempLines: TStringList;
+begin
+  SetLength(Result, 0);
+  if AProfile = nil then
+    Exit;
+
+  if (AMode = 0) and chkRunQueueDirect.Checked and (ACheckedFiles.Count > 0) then
+  begin
+    Result := ParseSqlFilesBatch(ACheckedFiles, AProfile.DatabaseType, True);
+  end
+  else if AMode = 1 then
+  begin
+    StartY := Max(1, SynEdit1.CaretY);
+    if StartY > SynEdit1.Lines.Count then
+      Exit;
+    TempLines := TStringList.Create;
+    try
+      for I := StartY - 1 to SynEdit1.Lines.Count - 1 do
+        TempLines.Add(SynEdit1.Lines[I]);
+      ScriptText := TempLines.Text;
+    finally
+      TempLines.Free;
+    end;
+    LineOffset := StartY - 1;
+    if FLoadedFilePath <> '' then
+    begin
+      SourceLabel := ExtractFileName(FLoadedFilePath);
+      BaseDir := ExtractFilePath(FLoadedFilePath);
+    end
+    else
+    begin
+      SourceLabel := 'Editor';
+      BaseDir := '';
+    end;
+    Result := ParseSqlScriptWithLines(ScriptText, AProfile.DatabaseType, SourceLabel, BaseDir, True, 0);
+    for I := 0 to High(Result) do
+    begin
+      if SameText(Result[I].SourceFile, SourceLabel) then
+      begin
+        Inc(Result[I].StartLine, LineOffset);
+        Inc(Result[I].EndLine, LineOffset);
+      end;
+    end;
+  end
+  else if (AMode = 2) and SynEdit1.SelAvail then
+  begin
+    ScriptText := SynEdit1.SelText;
+    LineOffset := Max(0, Min(SynEdit1.BlockBegin.Y, SynEdit1.BlockEnd.Y) - 1);
+    if FLoadedFilePath <> '' then
+    begin
+      SourceLabel := ExtractFileName(FLoadedFilePath);
+      BaseDir := ExtractFilePath(FLoadedFilePath);
+    end
+    else
+    begin
+      SourceLabel := 'Editor';
+      BaseDir := '';
+    end;
+    Result := ParseSqlScriptWithLines(ScriptText, AProfile.DatabaseType, SourceLabel, BaseDir, True, 0);
+    for I := 0 to High(Result) do
+    begin
+      if SameText(Result[I].SourceFile, SourceLabel) then
+      begin
+        Inc(Result[I].StartLine, LineOffset);
+        Inc(Result[I].EndLine, LineOffset);
+      end;
+    end;
+  end
+  else
+  begin
+    ScriptText := SynEdit1.Lines.Text;
+    if Trim(ScriptText) = '' then
+    begin
+      if ACheckedFiles.Count > 0 then
+        Result := ParseSqlFilesBatch(ACheckedFiles, AProfile.DatabaseType, True);
+    end
+    else
+    begin
+      if FLoadedFilePath <> '' then
+      begin
+        SourceLabel := ExtractFileName(FLoadedFilePath);
+        BaseDir := ExtractFilePath(FLoadedFilePath);
+      end
+      else
+      begin
+        SourceLabel := 'Editor';
+        BaseDir := '';
+      end;
+      Result := ParseSqlScriptWithLines(ScriptText, AProfile.DatabaseType, SourceLabel, BaseDir, True, 0);
+    end;
+  end;
+end;
+
+procedure TScriptExecutorFrame.LaunchCurrentProfileWorker;
+var
+  CurProfile: TConnectionProfile;
+  CurOpts: TScriptExecutionOptions;
   Provider: IDatabaseProvider;
+begin
+  if (FExecQueueIndex < 0) or (FExecQueueIndex > High(FExecQueueProfiles)) then
+    Exit;
+
+  CurProfile := FExecQueueProfiles[FExecQueueIndex];
+  if Length(FExecQueueProfiles) = 1 then
+  begin
+    if FSession = nil then
+    begin
+      Provider := FFactory.GetProvider(CurProfile.DatabaseType);
+      FSession := Provider.CreateSession(CurProfile);
+    end;
+    FCurrentExecSession := FSession;
+  end
+  else
+  begin
+    Provider := FFactory.GetProvider(CurProfile.DatabaseType);
+    FCurrentExecSession := Provider.CreateSession(CurProfile);
+  end;
+
+  CurOpts := FExecOptions;
+  CurOpts.TargetDatabaseName := CurProfile.Name;
+  CurOpts.AppendLogFile := (FExecQueueIndex > 0);
+
+  if Length(FExecQueueProfiles) > 1 then
+  begin
+    LogMessage(Format('Iniciando Script Executive em [%d/%d] "%s": %d comando(s) | %s | Erro: %s',
+      [FExecQueueIndex + 1, Length(FExecQueueProfiles), CurProfile.Name,
+       Length(FExecQueueStmts[FExecQueueIndex]),
+       ScriptCommitModeToStr(CurOpts.CommitMode),
+       ScriptErrorPolicyToStr(CurOpts.ErrorPolicy)]));
+    lblProgress.Caption := Format('Executando [%d/%d %s]: 0/%d comando(s) | %s',
+      [FExecQueueIndex + 1, Length(FExecQueueProfiles), CurProfile.Name,
+       FMultiTotalStatements, FormatElapsedSeconds]);
+  end
+  else
+    LogMessage(Format('Iniciando Script Executive em "%s": %d comando(s) | %s | Erro: %s',
+      [CurProfile.Name, Length(FExecQueueStmts[FExecQueueIndex]),
+       ScriptCommitModeToStr(CurOpts.CommitMode),
+       ScriptErrorPolicyToStr(CurOpts.ErrorPolicy)]));
+
+  FWorker := TScriptExecutorWorker.Create(
+    FCurrentExecSession,
+    CurProfile.DatabaseType,
+    FExecQueueStmts[FExecQueueIndex],
+    CurOpts,
+    @HandleScriptProgress,
+    @HandleScriptCompleted,
+    @HandleErrorPrompt
+  );
+  FWorker.Start;
+end;
+
+procedure TScriptExecutorFrame.StartScriptExecution(const AMode: Integer);
+var
+  Profile, P: TConnectionProfile;
+  TargetProfiles: array of TConnectionProfile;
+  I, J: Integer;
+  Found: Boolean;
+  CheckedFiles: TStringList;
 begin
   if FIsBusy then
   begin
@@ -815,10 +1812,48 @@ begin
     Exit;
   end;
 
-  Profile := SelectedProfile;
-  if (Profile = nil) or (FFactory = nil) then
+  HideConnSuggest(False);
+  HideMultiConnPopup;
+
+  if FFactory = nil then
+    Exit;
+
+  SetLength(TargetProfiles, 0);
+  if (FSelectedProfileIds <> nil) and (FSelectedProfileIds.Count > 0) and (FProfiles <> nil) then
   begin
-    MessageDlg('Aviso', 'Selecione uma conexão antes de executar.', mtInformation, [mbOK], 0);
+    for I := 0 to FProfiles.Count - 1 do
+    begin
+      P := FProfiles[I];
+      Found := False;
+      for J := 0 to FSelectedProfileIds.Count - 1 do
+      begin
+        if SameText(FSelectedProfileIds[J], P.Id) then
+        begin
+          Found := True;
+          Break;
+        end;
+      end;
+      if Found then
+      begin
+        SetLength(TargetProfiles, Length(TargetProfiles) + 1);
+        TargetProfiles[High(TargetProfiles)] := P;
+      end;
+    end;
+  end;
+
+  if Length(TargetProfiles) = 0 then
+  begin
+    Profile := SelectedProfile;
+    if Profile <> nil then
+    begin
+      SetLength(TargetProfiles, 1);
+      TargetProfiles[0] := Profile;
+    end;
+  end;
+
+  if Length(TargetProfiles) = 0 then
+  begin
+    MessageDlg('Aviso', 'Selecione pelo menos um banco de dados antes de executar.', mtInformation, [mbOK], 0);
     Exit;
   end;
 
@@ -826,107 +1861,36 @@ begin
   try
     CollectCheckedQueuePaths(CheckedFiles);
 
+    if (AMode = 0) and chkRunQueueDirect.Checked and (CheckedFiles.Count = 0) and
+       (Trim(SynEdit1.Lines.Text) = '') then
+    begin
+      MessageDlg('Aviso', 'Adicione e marque pelo menos um arquivo .sql na fila ou digite SQL no editor.',
+        mtInformation, [mbOK], 0);
+      Exit;
+    end;
+
+    if (AMode <> 1) and (not ((AMode = 2) and SynEdit1.SelAvail)) and
+       (Trim(SynEdit1.Lines.Text) = '') and (CheckedFiles.Count = 0) then
+    begin
+      LogMessage('Nenhum comando SQL para executar.');
+      Exit;
+    end;
+
+    ClearExecQueue;
+    SetLength(FExecQueueProfiles, Length(TargetProfiles));
+    SetLength(FExecQueueStmts, Length(TargetProfiles));
+    FMultiTotalStatements := 0;
     try
-      if (AMode = 0) and chkRunQueueDirect.Checked and (CheckedFiles.Count > 0) then
+      for I := 0 to High(TargetProfiles) do
       begin
-        Stmts := ParseSqlFilesBatch(CheckedFiles, Profile.DatabaseType, True);
-      end
-      else if AMode = 1 then
-      begin
-        StartY := Max(1, SynEdit1.CaretY);
-        if StartY > SynEdit1.Lines.Count then
-          Exit;
-        TempLines := TStringList.Create;
-        try
-          for I := StartY - 1 to SynEdit1.Lines.Count - 1 do
-            TempLines.Add(SynEdit1.Lines[I]);
-          ScriptText := TempLines.Text;
-        finally
-          TempLines.Free;
-        end;
-        LineOffset := StartY - 1;
-        if FLoadedFilePath <> '' then
-        begin
-          SourceLabel := ExtractFileName(FLoadedFilePath);
-          BaseDir := ExtractFilePath(FLoadedFilePath);
-        end
-        else
-        begin
-          SourceLabel := 'Editor';
-          BaseDir := '';
-        end;
-        Stmts := ParseSqlScriptWithLines(ScriptText, Profile.DatabaseType, SourceLabel, BaseDir, True, 0);
-        for I := 0 to High(Stmts) do
-        begin
-          if SameText(Stmts[I].SourceFile, SourceLabel) then
-          begin
-            Inc(Stmts[I].StartLine, LineOffset);
-            Inc(Stmts[I].EndLine, LineOffset);
-          end;
-        end;
-      end
-      else if (AMode = 2) and SynEdit1.SelAvail then
-      begin
-        ScriptText := SynEdit1.SelText;
-        LineOffset := Max(0, Min(SynEdit1.BlockBegin.Y, SynEdit1.BlockEnd.Y) - 1);
-        if FLoadedFilePath <> '' then
-        begin
-          SourceLabel := ExtractFileName(FLoadedFilePath);
-          BaseDir := ExtractFilePath(FLoadedFilePath);
-        end
-        else
-        begin
-          SourceLabel := 'Editor';
-          BaseDir := '';
-        end;
-        Stmts := ParseSqlScriptWithLines(ScriptText, Profile.DatabaseType, SourceLabel, BaseDir, True, 0);
-        for I := 0 to High(Stmts) do
-        begin
-          if SameText(Stmts[I].SourceFile, SourceLabel) then
-          begin
-            Inc(Stmts[I].StartLine, LineOffset);
-            Inc(Stmts[I].EndLine, LineOffset);
-          end;
-        end;
-      end
-      else
-      begin
-        if (AMode = 0) and chkRunQueueDirect.Checked and (CheckedFiles.Count = 0) and
-           (Trim(SynEdit1.Lines.Text) = '') then
-        begin
-          MessageDlg('Aviso', 'Adicione e marque pelo menos um arquivo .sql na fila ou digite SQL no editor.',
-            mtInformation, [mbOK], 0);
-          Exit;
-        end;
-        ScriptText := SynEdit1.Lines.Text;
-        if Trim(ScriptText) = '' then
-        begin
-          if CheckedFiles.Count > 0 then
-            Stmts := ParseSqlFilesBatch(CheckedFiles, Profile.DatabaseType, True)
-          else
-          begin
-            LogMessage('Nenhum comando SQL para executar.');
-            Exit;
-          end;
-        end
-        else
-        begin
-          if FLoadedFilePath <> '' then
-          begin
-            SourceLabel := ExtractFileName(FLoadedFilePath);
-            BaseDir := ExtractFilePath(FLoadedFilePath);
-          end
-          else
-          begin
-            SourceLabel := 'Editor';
-            BaseDir := '';
-          end;
-          Stmts := ParseSqlScriptWithLines(ScriptText, Profile.DatabaseType, SourceLabel, BaseDir, True, 0);
-        end;
+        FExecQueueProfiles[I] := TargetProfiles[I].Clone;
+        FExecQueueStmts[I] := ParseStatementsForProfile(FExecQueueProfiles[I], AMode, CheckedFiles);
+        Inc(FMultiTotalStatements, Length(FExecQueueStmts[I]));
       end;
     except
       on E: Exception do
       begin
+        ClearExecQueue;
         LogMessage('ERRO ao analisar script: ' + E.Message);
         MessageDlg('Erro no Script', E.Message, mtError, [mbOK], 0);
         Exit;
@@ -936,46 +1900,52 @@ begin
     CheckedFiles.Free;
   end;
 
-  if Length(Stmts) = 0 then
+  if FMultiTotalStatements = 0 then
   begin
+    ClearExecQueue;
     LogMessage('Nenhum comando SQL executável encontrado (apenas comentários ou diretivas).');
     Exit;
   end;
 
-  if FSession = nil then
+  if (Length(FExecQueueProfiles) > 1) and (FSession <> nil) then
   begin
-    Provider := FFactory.GetProvider(Profile.DatabaseType);
-    FSession := Provider.CreateSession(Profile);
+    try
+      if FSession.InTransaction then
+        FSession.Rollback;
+      FSession.Disconnect;
+    except
+    end;
+    FSession := nil;
   end;
 
   SetLength(FOutcomes, 0);
   ConfigureGrid;
   pgOutput.ActivePage := tsStatements;
 
-  Opts := DefaultScriptExecutionOptions;
-  Opts.CommitMode := SelectedCommitMode;
-  Opts.CommitEveryN := Max(1, StrToIntDef(Trim(edtCommitEveryN.Text), 1000));
-  Opts.ErrorPolicy := SelectedErrorPolicy;
+  FExecOptions := DefaultScriptExecutionOptions;
+  FExecOptions.CommitMode := SelectedCommitMode;
+  FExecOptions.CommitEveryN := Max(1, StrToIntDef(Trim(edtCommitEveryN.Text), 1000));
+  FExecOptions.ErrorPolicy := SelectedErrorPolicy;
   if chkLogToFile.Checked then
-    Opts.LogToFilePath := Trim(edtLogFile.Text)
+    FExecOptions.LogToFilePath := Trim(edtLogFile.Text)
   else
-    Opts.LogToFilePath := '';
+    FExecOptions.LogToFilePath := '';
 
-  LogMessage(Format('Iniciando Script Executive em "%s": %d comando(s) | %s | Erro: %s',
-    [Profile.Name, Length(Stmts), ScriptCommitModeToStr(Opts.CommitMode),
-     ScriptErrorPolicyToStr(Opts.ErrorPolicy)]));
+  FExecQueueIndex := 0;
+  FMultiCompletedStatementsBase := 0;
+  FMultiTotalSuccessCount := 0;
+  FMultiTotalErrorCount := 0;
+  FMultiDbSuccessCount := 0;
+  FMultiDbErrorCount := 0;
+  FMultiFirstErrorFile := '';
+  FMultiFirstErrorLine := 0;
 
-  SetRunningState(True, Length(Stmts));
-  FWorker := TScriptExecutorWorker.Create(
-    FSession,
-    Profile.DatabaseType,
-    Stmts,
-    Opts,
-    @HandleScriptProgress,
-    @HandleScriptCompleted,
-    @HandleErrorPrompt
-  );
-  FWorker.Start;
+  if Length(FExecQueueProfiles) > 1 then
+    LogMessage(Format('=== Execução em lote: %d banco(s) selecionado(s) | %d comando(s) no total ===',
+      [Length(FExecQueueProfiles), FMultiTotalStatements]));
+
+  SetRunningState(True, FMultiTotalStatements);
+  LaunchCurrentProfileWorker;
 end;
 
 procedure TScriptExecutorFrame.HandleScriptProgress(
@@ -983,12 +1953,17 @@ procedure TScriptExecutorFrame.HandleScriptProgress(
   const AExecutedCount, ATotalCount: Integer
 );
 var
-  I, OldLen, RowIdx: Integer;
+  I, OldLen, RowIdx, GlobalExec: Integer;
   O: TScriptStatementOutcome;
-  StatusStr, LocStr: string;
+  StatusStr, LocStr, CurDbName, DbPrefix: string;
 begin
   if Length(ANewOutcomes) = 0 then
     Exit;
+
+  CurDbName := '';
+  if (Length(FExecQueueProfiles) > 1) and (FExecQueueIndex >= 0) and
+     (FExecQueueIndex <= High(FExecQueueProfiles)) then
+    CurDbName := FExecQueueProfiles[FExecQueueIndex].Name;
 
   OldLen := Length(FOutcomes);
   SetLength(FOutcomes, OldLen + Length(ANewOutcomes));
@@ -1008,7 +1983,15 @@ begin
       StatusStr := ScriptStatementStatusToStr(O.Status);
 
     grdStatements.Cells[0, RowIdx] := IntToStr(O.Index);
-    grdStatements.Cells[1, RowIdx] := O.SourceFile;
+    if CurDbName <> '' then
+    begin
+      if O.SourceFile <> '' then
+        grdStatements.Cells[1, RowIdx] := Format('[%s] %s', [CurDbName, O.SourceFile])
+      else
+        grdStatements.Cells[1, RowIdx] := Format('[%s]', [CurDbName]);
+    end
+    else
+      grdStatements.Cells[1, RowIdx] := O.SourceFile;
     grdStatements.Cells[2, RowIdx] := IntToStr(O.StartLine);
     grdStatements.Cells[3, RowIdx] := StatusStr;
     grdStatements.Cells[4, RowIdx] := Format('%d ms', [O.ElapsedMs]);
@@ -1021,19 +2004,41 @@ begin
     else
       LocStr := Format('Linha %d', [O.StartLine]);
 
+    if CurDbName <> '' then
+      DbPrefix := '[' + CurDbName + '] '
+    else
+      DbPrefix := '';
+
     if O.Status = sssError then
-      LogMessage(Format('[ERRO] #%d (%s): %s -> %s', [O.Index, LocStr, O.SqlPreview, O.MessageText]))
+      LogMessage(Format('%s[ERRO] #%d (%s): %s -> %s', [DbPrefix, O.Index, LocStr, O.SqlPreview, O.MessageText]))
     else if O.ElapsedMs >= 50 then
-      LogMessage(Format('[%s] #%d (%s | %d ms): %s', [StatusStr, O.Index, LocStr, O.ElapsedMs, O.SqlPreview]));
+      LogMessage(Format('%s[%s] #%d (%s | %d ms): %s', [DbPrefix, StatusStr, O.Index, LocStr, O.ElapsedMs, O.SqlPreview]));
   end;
 
-  FExecutedCount := AExecutedCount;
-  FTotalStatements := ATotalCount;
-  pbProgress.Max := Max(1, ATotalCount);
-  pbProgress.Position := Min(ATotalCount, AExecutedCount);
-  lblProgress.Caption := Format('Executando: %d/%d (%d%% | %s | %s)',
-    [AExecutedCount, ATotalCount, Round(100 * AExecutedCount / Max(1, ATotalCount)),
-     FormatThroughputText, FormatElapsedSeconds]);
+  if Length(FExecQueueProfiles) > 1 then
+    GlobalExec := FMultiCompletedStatementsBase + AExecutedCount
+  else
+    GlobalExec := AExecutedCount;
+
+  FExecutedCount := GlobalExec;
+  if FMultiTotalStatements > 0 then
+    FTotalStatements := FMultiTotalStatements
+  else
+    FTotalStatements := ATotalCount;
+
+  pbProgress.Max := Max(1, FTotalStatements);
+  pbProgress.Position := Min(FTotalStatements, GlobalExec);
+  if CurDbName <> '' then
+    lblProgress.Caption := Format('Executando [%d/%d %s]: %d/%d (%d%% | %s | %s)',
+      [FExecQueueIndex + 1, Length(FExecQueueProfiles), CurDbName,
+       GlobalExec, FTotalStatements,
+       Round(100 * GlobalExec / Max(1, FTotalStatements)),
+       FormatThroughputText, FormatElapsedSeconds])
+  else
+    lblProgress.Caption := Format('Executando: %d/%d (%d%% | %s | %s)',
+      [GlobalExec, FTotalStatements,
+       Round(100 * GlobalExec / Max(1, FTotalStatements)),
+       FormatThroughputText, FormatElapsedSeconds]);
 
   if grdStatements.RowCount > 1 then
     grdStatements.Row := grdStatements.RowCount - 1;
@@ -1044,7 +2049,7 @@ procedure TScriptExecutorFrame.HandleErrorPrompt(
   out AAction: TScriptErrorAction
 );
 var
-  LocInfo, PromptText: string;
+  LocInfo, DbInfo, PromptText: string;
   DlgRes: TModalResult;
 begin
   if AOutcome.SourceFile <> '' then
@@ -1052,9 +2057,18 @@ begin
   else
     LocInfo := Format('Linha %d', [AOutcome.StartLine]);
 
+  if (Length(FExecQueueProfiles) > 1) and (FExecQueueIndex >= 0) and
+     (FExecQueueIndex <= High(FExecQueueProfiles)) then
+    DbInfo := Format('Banco [%d/%d]: %s%s', [
+      FExecQueueIndex + 1, Length(FExecQueueProfiles),
+      FExecQueueProfiles[FExecQueueIndex].Name, LineEnding
+    ])
+  else
+    DbInfo := '';
+
   PromptText := Format(
-    'Erro ao executar comando #%d em %s:%s%s%s%sErro: %s%sO que deseja fazer?',
-    [AOutcome.Index, LocInfo, LineEnding, LineEnding,
+    '%sErro ao executar comando #%d em %s:%s%s%s%sErro: %s%sO que deseja fazer?',
+    [DbInfo, AOutcome.Index, LocInfo, LineEnding, LineEnding,
      AOutcome.SqlPreview, LineEnding + LineEnding,
      AOutcome.MessageText, LineEnding + LineEnding]
   );
@@ -1069,7 +2083,11 @@ begin
 
   case DlgRes of
     mrIgnore: AAction := seaIgnoreOne;
-    mrAll: AAction := seaIgnoreAll;
+    mrAll:
+      begin
+        AAction := seaIgnoreAll;
+        FExecOptions.ErrorPolicy := sepIgnoreErrors;
+      end;
   else
     AAction := seaAbort;
   end;
@@ -1108,11 +2126,105 @@ procedure TScriptExecutorFrame.HandleScriptCompleted(
   const ASummary: TScriptExecutionSummary
 );
 var
-  ErrLoc: string;
+  ErrLoc, CurDbName, FinalSummaryMsg: string;
+  ShouldContinue: Boolean;
 begin
   if (FWorker <> nil) and (AWorker <> FWorker) then
     Exit;
 
+  Inc(FMultiCompletedStatementsBase, ASummary.ExecutedCount);
+  Inc(FMultiTotalSuccessCount, ASummary.SuccessCount);
+  Inc(FMultiTotalErrorCount, ASummary.ErrorCount);
+  if (ASummary.ErrorCount = 0) and (not ASummary.WasCancelled) then
+    Inc(FMultiDbSuccessCount)
+  else
+    Inc(FMultiDbErrorCount);
+
+  if (FMultiFirstErrorLine = 0) and (ASummary.FirstErrorLine > 0) then
+  begin
+    FMultiFirstErrorLine := ASummary.FirstErrorLine;
+    FMultiFirstErrorFile := ASummary.FirstErrorFile;
+  end;
+
+  if Length(FExecQueueProfiles) > 1 then
+  begin
+    if (FExecQueueIndex >= 0) and (FExecQueueIndex <= High(FExecQueueProfiles)) then
+      CurDbName := FExecQueueProfiles[FExecQueueIndex].Name
+    else
+      CurDbName := '';
+
+    if FCurrentExecSession <> nil then
+    begin
+      try
+        if FCurrentExecSession.InTransaction then
+          FCurrentExecSession.Rollback;
+        FCurrentExecSession.Disconnect;
+      except
+      end;
+      FCurrentExecSession := nil;
+    end;
+
+    LogMessage(Format('[%d/%d %s] %s',
+      [FExecQueueIndex + 1, Length(FExecQueueProfiles), CurDbName, ASummary.FinalMessage]));
+    if ASummary.CommittedAtEnd then
+      LogMessage(Format('[%s] COMMIT final executado com sucesso.', [CurDbName]))
+    else if ASummary.RolledBackOnError then
+      LogMessage(Format('[%s] ROLLBACK automático executado após erro/cancelamento.', [CurDbName]));
+
+    ShouldContinue := (FExecQueueIndex + 1 <= High(FExecQueueProfiles)) and
+      (not FCancelRequested) and (not ASummary.WasCancelled) and
+      ((ASummary.ErrorCount = 0) or (FExecOptions.ErrorPolicy <> sepStopOnError));
+
+    if ShouldContinue then
+    begin
+      FWorker := nil;
+      Inc(FExecQueueIndex);
+      LaunchCurrentProfileWorker;
+      Exit;
+    end;
+
+    FCurrentExecSession := nil;
+    SetRunningState(False, FMultiTotalStatements);
+    pbProgress.Max := Max(1, FMultiTotalStatements);
+    pbProgress.Position := Min(FMultiTotalStatements, FMultiCompletedStatementsBase);
+
+    if FCancelRequested or ASummary.WasCancelled then
+      FinalSummaryMsg := Format(
+        'Execução em lote cancelada: %d/%d banco(s) concluído(s) sem erro | %d/%d comando(s) (%d sucesso(s), %d erro(s)) em %s.',
+        [FMultiDbSuccessCount, Length(FExecQueueProfiles),
+         FMultiCompletedStatementsBase, FMultiTotalStatements,
+         FMultiTotalSuccessCount, FMultiTotalErrorCount, FormatElapsedSeconds])
+    else if FMultiTotalErrorCount > 0 then
+      FinalSummaryMsg := Format(
+        'Execução em lote finalizada com %d erro(s): %d/%d banco(s) ok | %d/%d comando(s) em %s.',
+        [FMultiTotalErrorCount, FMultiDbSuccessCount, Length(FExecQueueProfiles),
+         FMultiCompletedStatementsBase, FMultiTotalStatements, FormatElapsedSeconds])
+    else
+      FinalSummaryMsg := Format(
+        'Execução em lote concluída com sucesso: %d/%d banco(s) | %d/%d comando(s) em %s.',
+        [FMultiDbSuccessCount, Length(FExecQueueProfiles),
+         FMultiTotalSuccessCount, FMultiTotalStatements, FormatElapsedSeconds]);
+
+    if FMultiFirstErrorLine > 0 then
+    begin
+      if FMultiFirstErrorFile <> '' then
+        ErrLoc := Format('%s linha %d', [FMultiFirstErrorFile, FMultiFirstErrorLine])
+      else
+        ErrLoc := Format('linha %d', [FMultiFirstErrorLine]);
+      lblProgress.Caption := Format('%s (1º erro em %s - duplo clique na grade)',
+        [FinalSummaryMsg, ErrLoc]);
+    end
+    else
+      lblProgress.Caption := FinalSummaryMsg;
+
+    LogMessage(FinalSummaryMsg);
+    if (FMultiTotalErrorCount > 0) and (FMultiFirstErrorLine > 0) then
+      JumpToLocation(FMultiFirstErrorFile, FMultiFirstErrorLine);
+    ClearExecQueue;
+    Exit;
+  end;
+
+  FCurrentExecSession := nil;
   SetRunningState(False, ASummary.TotalStatements);
   pbProgress.Max := Max(1, ASummary.TotalStatements);
   pbProgress.Position := Min(ASummary.TotalStatements, ASummary.ExecutedCount);
@@ -1137,6 +2249,7 @@ begin
 
   if (ASummary.ErrorCount > 0) and (ASummary.FirstErrorLine > 0) then
     JumpToLocation(ASummary.FirstErrorFile, ASummary.FirstErrorLine);
+  ClearExecQueue;
 end;
 
 procedure TScriptExecutorFrame.HandleCancelCompleted(
@@ -1157,6 +2270,8 @@ begin
 end;
 
 procedure TScriptExecutorFrame.RequestCancel;
+var
+  SessionToCancel: IDatabaseSession;
 begin
   if (not FIsBusy) or FCancelRequested then
     Exit;
@@ -1177,9 +2292,12 @@ begin
     FCancelWorker.Detach;
     FCancelWorker := nil;
   end;
-  if FSession <> nil then
+  SessionToCancel := FCurrentExecSession;
+  if SessionToCancel = nil then
+    SessionToCancel := FSession;
+  if SessionToCancel <> nil then
   begin
-    FCancelWorker := TCancelQueryWorker.Create(FSession, @HandleCancelCompleted);
+    FCancelWorker := TCancelQueryWorker.Create(SessionToCancel, @HandleCancelCompleted);
     FCancelWorker.Start;
   end;
 end;
@@ -1197,8 +2315,11 @@ begin
   begin
     FWorker.DetachAndCancel;
     FWorker := nil;
-    FSession := nil;
+    if FCurrentExecSession = FSession then
+      FSession := nil;
+    FCurrentExecSession := nil;
   end;
+  ClearExecQueue;
   FIsBusy := False;
   FCancelRequested := False;
 end;
@@ -1614,8 +2735,8 @@ end;
 
 procedure TScriptExecutorFrame.tmrElapsedTimer(Sender: TObject);
 var
-  ElapsedStr, CurFile, CurSql: string;
-  CurIdx, CurTot: Integer;
+  ElapsedStr, CurFile, CurSql, DbLabel: string;
+  CurIdx, CurTot, GlobalIdx, GlobalTot: Integer;
 begin
   if not FIsBusy then
   begin
@@ -1638,12 +2759,29 @@ begin
   if FWorker <> nil then
   begin
     FWorker.GetCurrentStatus(CurIdx, CurTot, CurFile, CurSql);
-    if CurFile <> '' then
-      lblProgress.Caption := Format('Executando #%d/%d [%s] (%s | %s): %s',
-        [CurIdx, CurTot, CurFile, FormatThroughputText, ElapsedStr, CurSql])
+    if (Length(FExecQueueProfiles) > 1) and (FExecQueueIndex >= 0) and
+       (FExecQueueIndex <= High(FExecQueueProfiles)) then
+    begin
+      DbLabel := Format('[%d/%d %s] ', [
+        FExecQueueIndex + 1, Length(FExecQueueProfiles),
+        FExecQueueProfiles[FExecQueueIndex].Name
+      ]);
+      GlobalIdx := FMultiCompletedStatementsBase + CurIdx;
+      GlobalTot := FMultiTotalStatements;
+    end
     else
-      lblProgress.Caption := Format('Executando #%d/%d (%s | %s): %s',
-        [CurIdx, CurTot, FormatThroughputText, ElapsedStr, CurSql]);
+    begin
+      DbLabel := '';
+      GlobalIdx := CurIdx;
+      GlobalTot := CurTot;
+    end;
+
+    if CurFile <> '' then
+      lblProgress.Caption := Format('Executando %s#%d/%d [%s] (%s | %s): %s',
+        [DbLabel, GlobalIdx, GlobalTot, CurFile, FormatThroughputText, ElapsedStr, CurSql])
+    else
+      lblProgress.Caption := Format('Executando %s#%d/%d (%s | %s): %s',
+        [DbLabel, GlobalIdx, GlobalTot, FormatThroughputText, ElapsedStr, CurSql]);
   end;
 end;
 

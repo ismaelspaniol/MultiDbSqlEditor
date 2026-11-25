@@ -10,7 +10,7 @@ uses
   Domain.QueryResult;
 
 type
-  TDebugVarScope = (dvsInput, dvsOutput, dvsLocal, dvsSystem);
+  TDebugVarScope = (dvsInput, dvsOutput, dvsLocal, dvsSystem, dvsNew, dvsOld);
 
   TDebugVariable = class
   public
@@ -167,6 +167,7 @@ type
     function ParseWhile: TPsqlStmt;
     function ParseFor: TPsqlStmt;
     function ParseSelectIntoOrSql(const AStartLine: Integer): TPsqlStmt;
+    function ParseExecProcOrDml(const AStartLine: Integer): TPsqlStmt;
     function CollectTokensUntil(const AStopUpper1, AStopUpper2: string; const AStopSym: string;
       const AIncludeParenDepthZeroOnly: Boolean; out AEndLine: Integer): string;
 
@@ -192,6 +193,11 @@ type
     procedure LoadProcedure(
       const ADDL: string;
       const AParams: TDebugParamDeclArray
+    );
+    procedure LoadTrigger(
+      const ADDL: string;
+      const AEvent: string;
+      const AOldFields, ANewFields: TDebugParamDeclArray
     );
     procedure Start;
     procedure StepInto;
@@ -239,10 +245,17 @@ end;
 function TryParseFloatInv(const S: string; out V: Double): Boolean;
 var
   FS: TFormatSettings;
+  Clean: string;
 begin
+  Clean := Trim(S);
   FS := DefaultFormatSettings;
   FS.DecimalSeparator := '.';
-  Result := TryStrToFloat(Trim(S), V, FS);
+  Result := TryStrToFloat(Clean, V, FS);
+  if (not Result) and (Pos('.', Clean) = 0) and (Pos(',', Clean) > 0) then
+  begin
+    FS.DecimalSeparator := ',';
+    Result := TryStrToFloat(Clean, V, FS);
+  end;
 end;
 
 function FloatToStrInv(const V: Double): string;
@@ -922,6 +935,12 @@ begin
       Cond := Cond + ' ''' + StringReplace(PeekTok.Text, '''', '''''', [rfReplaceAll]) + ''''
     else if Cond = '' then
       Cond := PeekTok.Text
+    else if (PeekTok.Kind = ptkSymbol) and ((PeekTok.Text = ',') or (PeekTok.Text = '.') or (PeekTok.Text = ')')) then
+      Cond := Cond + PeekTok.Text
+    else if (Copy(Cond, Length(Cond), 1) = '(') or
+            (Copy(Cond, Length(Cond), 1) = '.') or
+            (Copy(Cond, Length(Cond), 1) = ':') then
+      Cond := Cond + PeekTok.Text
     else
       Cond := Cond + ' ' + PeekTok.Text;
     NextTok;
@@ -959,6 +978,12 @@ begin
       Cond := Cond + ' ''' + StringReplace(PeekTok.Text, '''', '''''', [rfReplaceAll]) + ''''
     else if Cond = '' then
       Cond := PeekTok.Text
+    else if (PeekTok.Kind = ptkSymbol) and ((PeekTok.Text = ',') or (PeekTok.Text = '.') or (PeekTok.Text = ')')) then
+      Cond := Cond + PeekTok.Text
+    else if (Copy(Cond, Length(Cond), 1) = '(') or
+            (Copy(Cond, Length(Cond), 1) = '.') or
+            (Copy(Cond, Length(Cond), 1) = ':') then
+      Cond := Cond + PeekTok.Text
     else
       Cond := Cond + ' ' + PeekTok.Text;
     NextTok;
@@ -1032,6 +1057,13 @@ begin
           Continue;
         end;
         VarName := NextTok.Text;
+        if (SameText(VarName, 'NEW') or SameText(VarName, 'OLD')) and
+           (PeekTok.Kind = ptkSymbol) and (PeekTok.Text = '.') and
+           (PeekTok(1).Kind = ptkIdent) then
+        begin
+          NextTok; { '.' }
+          VarName := VarName + '.' + NextTok.Text;
+        end;
         SetLength(Result.IntoVars, Length(Result.IntoVars) + 1);
         Result.IntoVars[High(Result.IntoVars)] := VarName;
       end;
@@ -1095,6 +1127,84 @@ begin
           Continue;
         end;
         VarName := NextTok.Text;
+        if (SameText(VarName, 'NEW') or SameText(VarName, 'OLD')) and
+           (PeekTok.Kind = ptkSymbol) and (PeekTok.Text = '.') and
+           (PeekTok(1).Kind = ptkIdent) then
+        begin
+          NextTok; { '.' }
+          VarName := VarName + '.' + NextTok.Text;
+        end;
+        SetLength(Result.IntoVars, Length(Result.IntoVars) + 1);
+        Result.IntoVars[High(Result.IntoVars)] := VarName;
+      end;
+      Break;
+    end;
+
+    if PeekTok.Text = '(' then Inc(ParenDepth)
+    else if (PeekTok.Text = ')') and (ParenDepth > 0) then Dec(ParenDepth);
+
+    if PeekTok.Kind = ptkString then
+      SqlPart := SqlPart + ' ''' + StringReplace(PeekTok.Text, '''', '''''', [rfReplaceAll]) + ''''
+    else if SqlPart = '' then
+      SqlPart := PeekTok.Text
+    else if (PeekTok.Kind = ptkSymbol) and ((PeekTok.Text = ',') or (PeekTok.Text = '.') or (PeekTok.Text = ')')) then
+      SqlPart := SqlPart + PeekTok.Text
+    else if (Copy(SqlPart, Length(SqlPart), 1) = '(') or
+            (Copy(SqlPart, Length(SqlPart), 1) = '.') or
+            (Copy(SqlPart, Length(SqlPart), 1) = ':') then
+      SqlPart := SqlPart + PeekTok.Text
+    else
+      SqlPart := SqlPart + ' ' + PeekTok.Text;
+    NextTok;
+  end;
+
+  Result.EndLine := PeekTok.Line;
+  MatchSymbol(';');
+  if HasInto then
+    Result.Kind := pskSelectInto
+  else
+    Result.Kind := pskSql;
+  Result.SqlText := Trim(SqlPart);
+end;
+
+function TPsqlDebugger.ParseExecProcOrDml(const AStartLine: Integer): TPsqlStmt;
+var
+  SqlPart, VarName: string;
+  HasInto, SeenReturning: Boolean;
+  ParenDepth: Integer;
+begin
+  Result := TPsqlStmt.Create;
+  Result.Line := AStartLine;
+  SqlPart := '';
+  HasInto := False;
+  SeenReturning := False;
+  ParenDepth := 0;
+
+  while (PeekTok.Kind <> ptkEOF) and not ((ParenDepth = 0) and (PeekTok.Text = ';')) do
+  begin
+    if (ParenDepth = 0) and (PeekTok.Kind = ptkIdent) and (PeekTok.UpperText = 'RETURNING') then
+      SeenReturning := True;
+
+    if (ParenDepth = 0) and (PeekTok.Kind = ptkIdent) and
+       ((PeekTok.UpperText = 'RETURNING_VALUES') or (SeenReturning and (PeekTok.UpperText = 'INTO'))) then
+    begin
+      HasInto := True;
+      NextTok; { RETURNING_VALUES or INTO }
+      while (PeekTok.Kind <> ptkEOF) and (PeekTok.Text <> ';') do
+      begin
+        if PeekTok.Kind = ptkSymbol then
+        begin
+          NextTok;
+          Continue;
+        end;
+        VarName := NextTok.Text;
+        if (SameText(VarName, 'NEW') or SameText(VarName, 'OLD')) and
+           (PeekTok.Kind = ptkSymbol) and (PeekTok.Text = '.') and
+           (PeekTok(1).Kind = ptkIdent) then
+        begin
+          NextTok; { '.' }
+          VarName := VarName + '.' + NextTok.Text;
+        end;
         SetLength(Result.IntoVars, Length(Result.IntoVars) + 1);
         Result.IntoVars[High(Result.IntoVars)] := VarName;
       end;
@@ -1203,6 +1313,29 @@ begin
     end;
     if T.UpperText = 'SELECT' then
       Exit(ParseSelectIntoOrSql(T.Line));
+    if ((T.UpperText = 'EXECUTE') and (PeekTok(1).Kind = ptkIdent) and (PeekTok(1).UpperText = 'PROCEDURE')) or
+       (T.UpperText = 'INSERT') or (T.UpperText = 'UPDATE') or (T.UpperText = 'DELETE') then
+      Exit(ParseExecProcOrDml(T.Line));
+
+    { Qualified assignment: NEW.<field> = <expr>; or OLD.<field> = <expr>; }
+    if ((T.UpperText = 'NEW') or (T.UpperText = 'OLD')) and
+       (PeekTok(1).Kind = ptkSymbol) and (PeekTok(1).Text = '.') and
+       (PeekTok(2).Kind = ptkIdent) and
+       (PeekTok(3).Kind = ptkSymbol) and ((PeekTok(3).Text = '=') or (PeekTok(3).Text = ':=')) then
+    begin
+      Result := TPsqlStmt.Create;
+      Result.Kind := pskAssign;
+      Result.Line := T.Line;
+      TargetName := NextTok.Text;
+      NextTok; { '.' }
+      TargetName := TargetName + '.' + NextTok.Text;
+      NextTok; { '=' }
+      Result.TargetVar := TargetName;
+      Result.ExprText := CollectTokensUntil('', '', ';', True, EndLine);
+      Result.EndLine := EndLine;
+      MatchSymbol(';');
+      Exit;
+    end;
 
     { Variable assignment: <ident> = <expr>; }
     if (PeekTok(1).Kind = ptkSymbol) and ((PeekTok(1).Text = '=') or (PeekTok(1).Text = ':=')) then
@@ -1231,22 +1364,38 @@ end;
 
 function TPsqlDebugger.FormatSqlLiteral(const AIsNull: Boolean; const AValue, ADataType: string): string;
 var
-  UpperType: string;
+  UpperType, Trimmed, IsoDate: string;
   IntVal: Int64;
   FltVal: Double;
 begin
   if AIsNull then
     Exit('NULL');
+  Trimmed := Trim(AValue);
   UpperType := UpperCase(ADataType);
   if (Pos('INT', UpperType) > 0) or (Pos('NUMERIC', UpperType) > 0) or
      (Pos('DECIMAL', UpperType) > 0) or (Pos('FLOAT', UpperType) > 0) or
      (Pos('DOUBLE', UpperType) > 0) then
   begin
-    if TryStrToInt64(Trim(AValue), IntVal) or TryParseFloatInv(AValue, FltVal) then
-      Exit(Trim(AValue));
+    if TryStrToInt64(Trimmed, IntVal) then
+      Exit(Trimmed);
+    if TryParseFloatInv(Trimmed, FltVal) then
+      Exit(FloatToStrInv(FltVal));
   end;
-  if TryStrToInt64(Trim(AValue), IntVal) and (UpperType = '') then
-    Exit(Trim(AValue));
+  if TryStrToInt64(Trimmed, IntVal) and (UpperType = '') then
+    Exit(Trimmed);
+
+  if ((Pos('DATE', UpperType) > 0) or (Pos('TIMESTAMP', UpperType) > 0) or (UpperType = '')) and
+     (Length(Trimmed) >= 10) and (Trimmed[3] = '/') and (Trimmed[6] = '/') and
+     (Trimmed[1] in ['0'..'9']) and (Trimmed[2] in ['0'..'9']) and
+     (Trimmed[4] in ['0'..'9']) and (Trimmed[5] in ['0'..'9']) and
+     (Trimmed[7] in ['0'..'9']) and (Trimmed[8] in ['0'..'9']) and
+     (Trimmed[9] in ['0'..'9']) and (Trimmed[10] in ['0'..'9']) then
+  begin
+    IsoDate := Copy(Trimmed, 7, 4) + '-' + Copy(Trimmed, 4, 2) + '-' + Copy(Trimmed, 1, 2) +
+               Copy(Trimmed, 11, Length(Trimmed) - 10);
+    Exit('''' + StringReplace(IsoDate, '''', '''''', [rfReplaceAll]) + '''');
+  end;
+
   Result := '''' + StringReplace(AValue, '''', '''''', [rfReplaceAll]) + '''';
 end;
 
@@ -1254,9 +1403,10 @@ function TPsqlDebugger.SubstituteSqlVars(const ASQL: string): string;
 var
   I, Len, StartIdx: Integer;
   InSingleQuote: Boolean;
-  VarName, VarVal: string;
+  VarName, FieldName, VarVal: string;
   IsNull: Boolean;
   V: TDebugVariable;
+  PrevChar: Char;
 begin
   Result := '';
   I := 1;
@@ -1280,6 +1430,15 @@ begin
       while (I <= Len) and IsIdentChar(ASQL[I]) do
         Inc(I);
       VarName := Copy(ASQL, StartIdx, I - StartIdx);
+      if (SameText(VarName, 'NEW') or SameText(VarName, 'OLD')) and
+         (I < Len) and (ASQL[I] = '.') and IsIdentStartChar(ASQL[I + 1]) then
+      begin
+        Inc(I);
+        StartIdx := I;
+        while (I <= Len) and IsIdentChar(ASQL[I]) do
+          Inc(I);
+        VarName := VarName + '.' + Copy(ASQL, StartIdx, I - StartIdx);
+      end;
       V := FindVar(VarName);
       if V <> nil then
         Result := Result + FormatSqlLiteral(V.IsNull, V.Value, V.DataType)
@@ -1288,6 +1447,37 @@ begin
       else
         Result := Result + ':' + VarName;
       Continue;
+    end;
+
+    if (not InSingleQuote) and IsIdentStartChar(ASQL[I]) then
+    begin
+      if I > 1 then PrevChar := ASQL[I - 1] else PrevChar := ' ';
+      if (not IsIdentChar(PrevChar)) and (PrevChar <> '.') then
+      begin
+        StartIdx := I;
+        while (I <= Len) and IsIdentChar(ASQL[I]) do
+          Inc(I);
+        VarName := Copy(ASQL, StartIdx, I - StartIdx);
+        if (SameText(VarName, 'NEW') or SameText(VarName, 'OLD')) and
+           (I < Len) and (ASQL[I] = '.') and IsIdentStartChar(ASQL[I + 1]) then
+        begin
+          Inc(I);
+          StartIdx := I;
+          while (I <= Len) and IsIdentChar(ASQL[I]) do
+            Inc(I);
+          FieldName := Copy(ASQL, StartIdx, I - StartIdx);
+          V := FindVar(VarName + '.' + FieldName);
+          if V <> nil then
+          begin
+            Result := Result + FormatSqlLiteral(V.IsNull, V.Value, V.DataType);
+            Continue;
+          end;
+          Result := Result + VarName + '.' + FieldName;
+          Continue;
+        end;
+        Result := Result + VarName;
+        Continue;
+      end;
     end;
 
     Result := Result + ASQL[I];
@@ -1539,6 +1729,23 @@ var
         Exit(False);
       end;
 
+      if (FnUpper = 'NEW') or (FnUpper = 'OLD') then
+      begin
+        SkipSpaces;
+        if (PosIdx <= Len) and (Expr[PosIdx] = '.') then
+        begin
+          Inc(PosIdx);
+          SkipSpaces;
+          if (PosIdx <= Len) and IsIdentStartChar(Expr[PosIdx]) then
+          begin
+            StartIdx := PosIdx;
+            while (PosIdx <= Len) and IsIdentChar(Expr[PosIdx]) do
+              Inc(PosIdx);
+            Ident := Ident + '.' + Copy(Expr, StartIdx, PosIdx - StartIdx);
+          end;
+        end;
+      end;
+
       if GetVarValue(Ident, ONull, OVal) then
         Exit(True);
       Exit(False);
@@ -1703,6 +1910,21 @@ var
         ONull := False;
         if ResBool then OVal := '1' else OVal := '0';
         Exit(True);
+      end
+      else if ConsumeWord('DISTINCT') then
+      begin
+        ConsumeWord('FROM');
+        if not ParseAdd(RNull, RVal) then Exit(False);
+        if ONull and RNull then
+          ResBool := False
+        else if ONull <> RNull then
+          ResBool := True
+        else
+          ResBool := (CompareVals(ONull, OVal, RNull, RVal) <> 0);
+        if NotFlag then ResBool := not ResBool;
+        ONull := False;
+        if ResBool then OVal := '1' else OVal := '0';
+        Exit(True);
       end;
       Exit(False);
     end;
@@ -1840,6 +2062,8 @@ var
 begin
   Result := False;
   if EvalExpression(AExpr, IsNull, Val) then
+    Result := (not IsNull) and ((Val = '1') or SameText(Val, 'true'))
+  else if EvalViaDatabase('CASE WHEN (' + AExpr + ') THEN 1 ELSE 0 END', IsNull, Val) then
     Result := (not IsNull) and ((Val = '1') or SameText(Val, 'true'));
 end;
 
@@ -2311,6 +2535,93 @@ begin
   begin
     FState := dsError;
     FLastError := 'Não foi possível localizar o bloco BEGIN..END da procedure.';
+  end;
+end;
+
+procedure TPsqlDebugger.LoadTrigger(
+  const ADDL: string;
+  const AEvent: string;
+  const AOldFields, ANewFields: TDebugParamDeclArray
+);
+var
+  I, EndLine: Integer;
+  V: TDebugVariable;
+  EvtUp: string;
+begin
+  ClearStack;
+  ClearVars;
+  ClearSuspendedRows;
+  FreeAndNil(FRootStmt);
+  FStepCount := 0;
+  FLastError := '';
+
+  Tokenize(ADDL);
+  FTokIdx := 0;
+
+  V := EnsureVar('ROW_COUNT', dvsSystem, 'INTEGER');
+  V.IsNull := False;
+  V.Value := '0';
+  V := EnsureVar('SQLCODE', dvsSystem, 'INTEGER');
+  V.IsNull := False;
+  V.Value := '0';
+
+  EvtUp := UpperCase(Trim(AEvent));
+  V := EnsureVar('INSERTING', dvsSystem, 'BOOLEAN');
+  V.IsNull := False;
+  if EvtUp = 'INSERT' then V.Value := '1' else V.Value := '0';
+
+  V := EnsureVar('UPDATING', dvsSystem, 'BOOLEAN');
+  V.IsNull := False;
+  if EvtUp = 'UPDATE' then V.Value := '1' else V.Value := '0';
+
+  V := EnsureVar('DELETING', dvsSystem, 'BOOLEAN');
+  V.IsNull := False;
+  if EvtUp = 'DELETE' then V.Value := '1' else V.Value := '0';
+
+  SetLength(FOutputColNames, 0);
+  for I := 0 to High(AOldFields) do
+  begin
+    V := EnsureVar('OLD.' + AOldFields[I].Name, dvsOld, AOldFields[I].DataType);
+    V.IsNull := AOldFields[I].IsNull;
+    V.Value := AOldFields[I].Value;
+  end;
+  for I := 0 to High(ANewFields) do
+  begin
+    V := EnsureVar('NEW.' + ANewFields[I].Name, dvsNew, ANewFields[I].DataType);
+    V.IsNull := ANewFields[I].IsNull;
+    V.Value := ANewFields[I].Value;
+  end;
+
+  while (PeekTok.Kind <> ptkEOF) and (PeekTok.UpperText <> 'AS') do
+    NextTok;
+  MatchUpper('AS');
+
+  while (PeekTok.Kind <> ptkEOF) and (PeekTok.UpperText <> 'BEGIN') do
+  begin
+    if MatchUpper('DECLARE') then
+    begin
+      if PeekTok.UpperText = 'CURSOR' then
+      begin
+        CollectTokensUntil('', '', ';', False, EndLine);
+        MatchSymbol(';');
+      end
+      else
+        ParseDeclareVariable;
+    end
+    else
+      NextTok;
+  end;
+
+  FRootStmt := ParseStatement;
+  if FRootStmt <> nil then
+  begin
+    FState := dsIdle;
+    FCurrentLine := FRootStmt.Line;
+  end
+  else
+  begin
+    FState := dsError;
+    FLastError := 'Não foi possível localizar o bloco BEGIN..END da trigger.';
   end;
 end;
 

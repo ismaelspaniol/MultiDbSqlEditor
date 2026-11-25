@@ -65,9 +65,21 @@ type
     FInputValues: TProcedureParamValueArray;
     FDDL: string;
     FUseCase: TManageDatabaseObjectsUseCase;
+    FFactory: IDatabaseProviderFactory;
     FSession: IDatabaseSession;
     FDebugger: TPsqlDebugger;
     FIsRunning: Boolean;
+    FIsTriggerMode: Boolean;
+    FTriggerName: string;
+    FTriggerEvent: string;
+    FOldFields: TDebugParamDeclArray;
+    FNewFields: TDebugParamDeclArray;
+    edtVarsFilter: TEdit;
+    edtResultsFilter: TEdit;
+    FFilteredVarIndices: array of Integer;
+
+    procedure edtVarsFilterChange(Sender: TObject);
+    procedure edtResultsFilterChange(Sender: TObject);
 
     function HandleDebugExecSql(const ASQL: string; out AError: string): TQueryResult;
     procedure HandleDebugLog(const AMsg: string);
@@ -89,6 +101,13 @@ type
       const AInputValues: TProcedureParamValueArray;
       const ADDL: string
     );
+    class procedure ExecuteTrigger(
+      const AProfile: TConnectionProfile;
+      const AFactory: IDatabaseProviderFactory;
+      const ATriggerName, ATableName, AEvent: string;
+      const AOldFields, ANewFields: TDebugParamDeclArray;
+      const ADDL: string
+    );
   end;
 
 implementation
@@ -102,6 +121,8 @@ begin
     dvsOutput: Result := 'OUT';
     dvsLocal: Result := 'LOCAL';
     dvsSystem: Result := 'SYS';
+    dvsNew: Result := 'NEW';
+    dvsOld: Result := 'OLD';
   else
     Result := '';
   end;
@@ -123,6 +144,7 @@ begin
   try
     Frm.FProfile := AProfile;
     Frm.FUseCase := AUseCase;
+    Frm.FIsTriggerMode := False;
     Frm.FMeta := AMeta;
     Frm.FInputValues := AInputValues;
     Frm.FDDL := ADDL;
@@ -137,12 +159,64 @@ begin
   end;
 end;
 
+class procedure TProcedureDebugForm.ExecuteTrigger(
+  const AProfile: TConnectionProfile;
+  const AFactory: IDatabaseProviderFactory;
+  const ATriggerName, ATableName, AEvent: string;
+  const AOldFields, ANewFields: TDebugParamDeclArray;
+  const ADDL: string
+);
+var
+  Frm: TProcedureDebugForm;
+begin
+  Frm := TProcedureDebugForm.Create(Forms.Application);
+  try
+    Frm.FProfile := AProfile;
+    Frm.FFactory := AFactory;
+    Frm.FIsTriggerMode := True;
+    Frm.FTriggerName := ATriggerName;
+    Frm.FTriggerEvent := AEvent;
+    Frm.FOldFields := AOldFields;
+    Frm.FNewFields := ANewFields;
+    Frm.FDDL := ADDL;
+    Frm.Caption := Format('Debug Trigger: %s [%s em %s] (%s)',
+      [ATriggerName, AEvent, ATableName, AProfile.Name]);
+    Frm.edtResultsFilter.Visible := True;
+    Frm.SynEdit1.Lines.Text := ADDL;
+    Frm.FDebugger.LoadTrigger(ADDL, AEvent, AOldFields, ANewFields);
+    Frm.FDebugger.Start;
+    Frm.RefreshUI;
+    Frm.ShowModal;
+  finally
+    Frm.Free;
+  end;
+end;
+
 procedure TProcedureDebugForm.FormCreate(Sender: TObject);
 begin
   FDebugger := TPsqlDebugger.Create;
   FDebugger.OnExecSql := @HandleDebugExecSql;
   FDebugger.OnLog := @HandleDebugLog;
   FDebugger.OnYield := @HandleDebugYield;
+
+  edtVarsFilter := TEdit.Create(Self);
+  edtVarsFilter.Parent := pnlVars;
+  edtVarsFilter.Align := alTop;
+  edtVarsFilter.Top := lblVars.Top + lblVars.Height + 2;
+  edtVarsFilter.BorderSpacing.Left := 4;
+  edtVarsFilter.BorderSpacing.Right := 4;
+  edtVarsFilter.BorderSpacing.Bottom := 4;
+  edtVarsFilter.TextHint := 'Buscar variável / parâmetro...';
+  edtVarsFilter.OnChange := @edtVarsFilterChange;
+
+  edtResultsFilter := TEdit.Create(Self);
+  edtResultsFilter.Parent := tsResults;
+  edtResultsFilter.Align := alTop;
+  edtResultsFilter.BorderSpacing.Around := 4;
+  edtResultsFilter.TextHint := 'Buscar campo OLD vs NEW...';
+  edtResultsFilter.Visible := False;
+  edtResultsFilter.OnChange := @edtResultsFilterChange;
+
   SetupGrids;
 end;
 
@@ -229,8 +303,12 @@ procedure TProcedureDebugForm.EnsureSessionConnected;
 begin
   if FSession = nil then
   begin
-    FSession := FUseCase.CreateSession(FProfile);
-    FSession.Connect;
+    if FUseCase <> nil then
+      FSession := FUseCase.CreateSession(FProfile)
+    else if FFactory <> nil then
+      FSession := FFactory.GetProvider(FProfile.DatabaseType).CreateSession(FProfile);
+    if FSession <> nil then
+      FSession.Connect;
   end
   else if not FSession.IsConnected then
     FSession.Connect;
@@ -286,15 +364,50 @@ begin
   Forms.Application.ProcessMessages;
 end;
 
+procedure TProcedureDebugForm.edtVarsFilterChange(Sender: TObject);
+begin
+  RefreshVarsGrid;
+end;
+
+procedure TProcedureDebugForm.edtResultsFilterChange(Sender: TObject);
+begin
+  RefreshResultsGrid;
+end;
+
 procedure TProcedureDebugForm.RefreshVarsGrid;
 var
   I, RowIdx: Integer;
   V: TDebugVariable;
+  Q, ValStr, Haystack: string;
 begin
-  gridVars.RowCount := 1 + FDebugger.VarCount;
+  Q := '';
+  if edtVarsFilter <> nil then
+    Q := LowerCase(Trim(edtVarsFilter.Text));
+
+  SetLength(FFilteredVarIndices, 0);
   for I := 0 to FDebugger.VarCount - 1 do
   begin
     V := FDebugger.GetVar(I);
+    if V.IsNull then
+      ValStr := '<NULL>'
+    else
+      ValStr := V.Value;
+
+    if Q <> '' then
+    begin
+      Haystack := LowerCase(V.Name + ' ' + ScopeToLabel(V.Scope) + ' ' + V.DataType + ' ' + ValStr);
+      if Pos(Q, Haystack) = 0 then
+        Continue;
+    end;
+
+    SetLength(FFilteredVarIndices, Length(FFilteredVarIndices) + 1);
+    FFilteredVarIndices[High(FFilteredVarIndices)] := I;
+  end;
+
+  gridVars.RowCount := 1 + Length(FFilteredVarIndices);
+  for I := 0 to High(FFilteredVarIndices) do
+  begin
+    V := FDebugger.GetVar(FFilteredVarIndices[I]);
     RowIdx := I + 1;
     gridVars.Cells[0, RowIdx] := V.Name;
     gridVars.Cells[1, RowIdx] := ScopeToLabel(V.Scope);
@@ -327,8 +440,76 @@ end;
 
 procedure TProcedureDebugForm.RefreshResultsGrid;
 var
-  C, R, Cols, Rows: Integer;
+  C, R, Cols, Rows, I, J, MatchCount: Integer;
+  FieldName, OldValStr, NewValStr, ModStr, Q, Haystack: string;
+  OldNull, NewNull, IsMod: Boolean;
+  V: TDebugVariable;
 begin
+  if FIsTriggerMode then
+  begin
+    tsResults.Caption := 'Campos OLD vs NEW';
+    gridResults.ColCount := 4;
+    gridResults.Cells[0, 0] := 'Campo';
+    gridResults.Cells[1, 0] := 'OLD';
+    gridResults.Cells[2, 0] := 'NEW';
+    gridResults.Cells[3, 0] := 'Modificado';
+    gridResults.ColWidths[0] := 180;
+    gridResults.ColWidths[1] := 260;
+    gridResults.ColWidths[2] := 260;
+    gridResults.ColWidths[3] := 90;
+
+    Q := '';
+    if edtResultsFilter <> nil then
+      Q := LowerCase(Trim(edtResultsFilter.Text));
+
+    gridResults.RowCount := 1;
+    MatchCount := 0;
+    for I := 0 to High(FNewFields) do
+    begin
+      FieldName := FNewFields[I].Name;
+      OldNull := True;
+      OldValStr := '<NULL>';
+      NewNull := True;
+      NewValStr := '<NULL>';
+
+      for J := 0 to FDebugger.VarCount - 1 do
+      begin
+        V := FDebugger.GetVar(J);
+        if SameText(V.Name, 'OLD.' + FieldName) then
+        begin
+          OldNull := V.IsNull;
+          if not V.IsNull then OldValStr := V.Value;
+        end
+        else if SameText(V.Name, 'NEW.' + FieldName) then
+        begin
+          NewNull := V.IsNull;
+          if not V.IsNull then NewValStr := V.Value;
+        end;
+      end;
+
+      IsMod := (OldNull <> NewNull) or ((not OldNull) and (OldValStr <> NewValStr));
+      if IsMod then
+        ModStr := 'Sim'
+      else
+        ModStr := '';
+
+      if Q <> '' then
+      begin
+        Haystack := LowerCase(FieldName + ' ' + OldValStr + ' ' + NewValStr + ' ' + ModStr);
+        if Pos(Q, Haystack) = 0 then
+          Continue;
+      end;
+
+      Inc(MatchCount);
+      gridResults.RowCount := 1 + MatchCount;
+      gridResults.Cells[0, MatchCount] := FieldName;
+      gridResults.Cells[1, MatchCount] := OldValStr;
+      gridResults.Cells[2, MatchCount] := NewValStr;
+      gridResults.Cells[3, MatchCount] := ModStr;
+    end;
+    Exit;
+  end;
+
   Cols := FDebugger.OutputColCount;
   Rows := FDebugger.SuspendedRowCount;
   if Cols <= 0 then
@@ -477,7 +658,10 @@ begin
   end;
   EndSessionTransaction;
   memLog.Clear;
-  FDebugger.LoadProcedure(FDDL, BuildDebugParams);
+  if FIsTriggerMode then
+    FDebugger.LoadTrigger(FDDL, FTriggerEvent, FOldFields, FNewFields)
+  else
+    FDebugger.LoadProcedure(FDDL, BuildDebugParams);
   FDebugger.Start;
   RefreshUI;
 end;
@@ -535,12 +719,12 @@ procedure TProcedureDebugForm.gridVarsPrepareCanvas(
 var
   V: TDebugVariable;
 begin
-  if (aRow <= 0) or (FDebugger = nil) or ((aRow - 1) >= FDebugger.VarCount) then
+  if (aRow <= 0) or (FDebugger = nil) or ((aRow - 1) >= Length(FFilteredVarIndices)) then
     Exit;
   if gdSelected in aState then
     Exit;
 
-  V := FDebugger.GetVar(aRow - 1);
+  V := FDebugger.GetVar(FFilteredVarIndices[aRow - 1]);
   if (V.LastChangedStep >= 0) and (V.LastChangedStep = FDebugger.StepCount) then
   begin
     gridVars.Canvas.Brush.Color := RGBToColor(224, 242, 254);

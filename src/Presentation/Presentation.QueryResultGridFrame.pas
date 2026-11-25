@@ -26,6 +26,11 @@ type
     const AOldRow: TQueryRow;
     out AError: string
   ): Boolean of object;
+  TResultGridPopupEvent = procedure(
+    Sender: TObject;
+    const APopupMenu: TPopupMenu;
+    const ADataRowIndex: Integer
+  ) of object;
 
   { Frame reutilizável de exibição, ordenação, edição, cópia e exportação CSV de TQueryResult }
   TQueryResultGridFrame = class(TFrame)
@@ -135,6 +140,7 @@ type
     FOnUpdateCell: TResultGridUpdateCellEvent;
     FOnInsertRow: TResultGridInsertRowEvent;
     FOnDeleteRow: TResultGridDeleteRowEvent;
+    FOnBeforePopup: TResultGridPopupEvent;
     procedure EnsureExtendedControls;
     procedure grdResultsSelection(Sender: TObject; aCol, aRow: Integer);
     procedure edtQuickFilterChange(Sender: TObject);
@@ -212,6 +218,7 @@ type
     property OnUpdateCell: TResultGridUpdateCellEvent read FOnUpdateCell write FOnUpdateCell;
     property OnInsertRow: TResultGridInsertRowEvent read FOnInsertRow write FOnInsertRow;
     property OnDeleteRow: TResultGridDeleteRowEvent read FOnDeleteRow write FOnDeleteRow;
+    property OnBeforePopup: TResultGridPopupEvent read FOnBeforePopup write FOnBeforePopup;
   end;
 
 implementation
@@ -1021,6 +1028,9 @@ begin
   miDeleteRow.Enabled := FEditable and HasValidRow;
   miSetNull.Visible := FEditable;
   miSetNull.Enabled := FEditable and HasValidCell;
+
+  if Assigned(FOnBeforePopup) then
+    FOnBeforePopup(Self, pmGrid, DataRowIndexForGridRow(grdResults.Row));
 end;
 
 procedure TQueryResultGridFrame.grdResultsGetEditText(Sender: TObject; aCol, aRow: Integer;
