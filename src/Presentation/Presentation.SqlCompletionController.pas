@@ -10,7 +10,8 @@ uses
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
   Domain.QueryResult,
-  Domain.SqlAliasResolver;
+  Domain.SqlAliasResolver,
+  Domain.AppLogger;
 
 type
   TGetCompletionProfileEvent = function: TConnectionProfile of object;
@@ -184,6 +185,8 @@ begin
       Res.Free;
     end;
   except
+    on E: Exception do
+      LogException('SqlCompletionController.LoadObjects', E);
   end;
 end;
 
@@ -525,6 +528,8 @@ var
         Res.Free;
       end;
     except
+      on E: Exception do
+        LogException('SqlCompletionController.LoadColumns', E);
     end;
   end;
 

@@ -219,13 +219,6 @@
         <ResourceBaseClass Value="Frame"/>
       </Unit>
       <Unit>
-        <Filename Value="src\Presentation\Presentation.TableEditorForm.pas"/>
-        <IsPartOfProject Value="True"/>
-        <ComponentName Value="TableEditorForm"/>
-        <HasResources Value="True"/>
-        <ResourceBaseClass Value="Form"/>
-      </Unit>
-      <Unit>
         <Filename Value="src\Presentation\Presentation.TableEditorFrame.pas"/>
         <IsPartOfProject Value="True"/>
         <ComponentName Value="TableEditorFrame"/>
@@ -270,6 +263,38 @@
         <ComponentName Value="ProcedureParamsForm"/>
         <HasResources Value="True"/>
         <ResourceBaseClass Value="Form"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Domain\Domain.AppLogger.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Domain\Domain.AppVersion.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Domain\Domain.TableDdlBuilder.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Domain\Domain.SqlScriptUtils.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Application\Application.CheckUpdateUseCase.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Infrastructure\Infrastructure.GitHubUpdateService.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.ConnectionComboSearch.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="src\Presentation\Presentation.UpdateDialog.pas"/>
+        <IsPartOfProject Value="True"/>
       </Unit>
       <Unit>
         <Filename Value="src\Presentation\Presentation.SqlEditorSearchBar.pas"/>

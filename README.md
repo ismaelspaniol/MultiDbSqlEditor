@@ -173,10 +173,22 @@ Consulte [ARQUITETURA.md](ARQUITETURA.md) para detalhes de cada unit.
 3. Compilação via linha de comando:
 
 ```powershell
-& "C:\Lazarus\lazarus\lazbuild.exe" MultiDbSqlEditor.lpi
+# Compilar e rodar testes unitários
+& "C:\Lazarus\lazarus\lazbuild.exe" tests\MultiDbSqlEditorTests.lpi
+.\tests\bin\MultiDbSqlEditorTests.exe --all --format=plain
+
+# Compilar aplicativo em modo Release
+& "C:\Lazarus\lazarus\lazbuild.exe" --build-mode=Release MultiDbSqlEditor.lpi
+
+# Ou usar o script completo de build e empacotamento (Windows / Linux)
+.\scripts\build-release.ps1
+# No Linux: ./scripts/build-release.sh
 ```
 
-- **Executável gerado:** `bin\MultiDbSqlEditor.exe`
+- **Executável gerado:** `bin\MultiDbSqlEditor.exe` (Windows) ou `bin/MultiDbSqlEditor` (Linux)
+- **Recursos de Diagnóstico e Atualizações:**
+  - **Auto-verificação de atualizações** via GitHub Releases (`Ferramentas -> Verificar Atualizações...` e opção `Verificar Atualizações ao Iniciar`, compatível com Windows e Linux).
+  - **Log Diagnóstico** (`Ferramentas -> Ver Log Diagnóstico...`) gravado em `bin/logs/multidb.log` (com fallback automático para o diretório de configuração do usuário no Linux).
 - **Arquivos de configuração em runtime (pasta `bin\`):**
   - `connections.json` — perfis de conexão salvos
   - `workspace.json` — abas abertas e estado da janela

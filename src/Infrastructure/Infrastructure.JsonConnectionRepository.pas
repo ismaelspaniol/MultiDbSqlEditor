@@ -12,7 +12,8 @@ uses
   base64,
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
-  Domain.Interfaces;
+  Domain.Interfaces,
+  Domain.AppLogger;
 
 type
   { Persistência local de perfis de conexão em arquivo JSON }
@@ -69,7 +70,11 @@ begin
     try
       Result := DecodeStringBase64(AEncoded);
     except
-      Result := AEncoded;
+      on E: Exception do
+      begin
+        LogException('JsonConnectionRepository.DecodeSecret', E);
+        Result := AEncoded;
+      end;
     end;
 end;
 

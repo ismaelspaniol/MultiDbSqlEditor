@@ -33,3 +33,18 @@ third_party/
 connections.json
 workspace.json
 *.local.json
+
+# Release packages (distributed via GitHub Releases assets, not git history)
+release/*.zip
+release/*.tar.gz
+release/*.AppImage
+
+# Runtime logs & local preferences
+bin/logs/
+*.log
+ddl_preview_settings.json
+update_settings.json
+
+# Unit tests build artifacts
+tests/lib/
+tests/bin/

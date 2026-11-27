@@ -12,6 +12,7 @@ uses
   Domain.QueryResult,
   Domain.Interfaces,
   Domain.TableStructureTypes,
+  Domain.TableDdlBuilder,
   Application.ManageDatabaseObjectsUseCase;
 
 type
@@ -244,82 +245,15 @@ procedure DecodeFirebirdTriggerDetails(
   out ATiming, AEvents: string;
   out AHasInsert, AHasUpdate, AHasDelete: Boolean
 );
-var
-  Mask, Slot, I: Integer;
 begin
-  AHasInsert := False;
-  AHasUpdate := False;
-  AHasDelete := False;
-  AEvents := '';
-
-  case ATrigType of
-    8192: begin ATiming := 'DATABASE'; AEvents := 'ON CONNECT'; Exit; end;
-    8193: begin ATiming := 'DATABASE'; AEvents := 'ON DISCONNECT'; Exit; end;
-    8194: begin ATiming := 'DATABASE'; AEvents := 'ON TRANSACTION START'; Exit; end;
-    8195: begin ATiming := 'DATABASE'; AEvents := 'ON TRANSACTION COMMIT'; Exit; end;
-    8196: begin ATiming := 'DATABASE'; AEvents := 'ON TRANSACTION ROLLBACK'; Exit; end;
-  end;
-
-  if (ATrigType and 1) = 1 then
-    ATiming := 'BEFORE'
-  else
-    ATiming := 'AFTER';
-
-  Mask := (ATrigType + 1) shr 1;
-  for I := 0 to 2 do
-  begin
-    Slot := (Mask shr (I * 2)) and 3;
-    case Slot of
-      1:
-        if not AHasInsert then
-        begin
-          AHasInsert := True;
-          if AEvents <> '' then AEvents := AEvents + ' OR ';
-          AEvents := AEvents + 'INSERT';
-        end;
-      2:
-        if not AHasUpdate then
-        begin
-          AHasUpdate := True;
-          if AEvents <> '' then AEvents := AEvents + ' OR ';
-          AEvents := AEvents + 'UPDATE';
-        end;
-      3:
-        if not AHasDelete then
-        begin
-          AHasDelete := True;
-          if AEvents <> '' then AEvents := AEvents + ' OR ';
-          AEvents := AEvents + 'DELETE';
-        end;
-    end;
-  end;
-
-  if AEvents = '' then
-  begin
-    AHasInsert := True;
-    AEvents := 'INSERT';
-  end;
+  Domain.TableDdlBuilder.DecodeFirebirdTriggerDetails(ATrigType, ATiming, AEvents, AHasInsert, AHasUpdate, AHasDelete);
 end;
 
 function BuildTriggerEventsClause(
   const AHasInsert, AHasUpdate, AHasDelete: Boolean
 ): string;
 begin
-  Result := '';
-  if AHasInsert then
-    Result := 'INSERT';
-  if AHasUpdate then
-  begin
-    if Result <> '' then
-      Result := Result + ' OR ';
-    Result := Result + 'UPDATE';
-  end;
-  if AHasDelete then
-  begin
-    if Result <> '' then
-      Result := Result + ' OR ';
-    Result := Result + 'DELETE';
-  end;
+  Result := Domain.TableDdlBuilder.BuildTriggerEventsClause(AHasInsert, AHasUpdate, AHasDelete);
 end;
 
 function BuildFirebirdTriggerHeader(
@@ -327,38 +261,9 @@ function BuildFirebirdTriggerHeader(
   const AHasInsert, AHasUpdate, AHasDelete, AIsActive: Boolean;
   const APosition: Integer
 ): string;
-var
-  TimingStr, EventsStr, ActiveStr: string;
-  PosVal: Integer;
 begin
-  TimingStr := UpperCase(Trim(ATiming));
-  if (TimingStr <> 'BEFORE') and (TimingStr <> 'AFTER') then
-    TimingStr := 'BEFORE';
-
-  EventsStr := BuildTriggerEventsClause(AHasInsert, AHasUpdate, AHasDelete);
-  if EventsStr = '' then
-    EventsStr := 'INSERT';
-
-  if AIsActive then
-    ActiveStr := 'ACTIVE'
-  else
-    ActiveStr := 'INACTIVE';
-
-  PosVal := APosition;
-  if PosVal < 0 then
-    PosVal := 0;
-
-  Result := Format(
-    'CREATE OR ALTER TRIGGER %s FOR %s' + LineEnding + '%s %s %s POSITION %d',
-    [
-      QuoteDbIdent(dtFirebird, ATriggerName),
-      QuoteDbIdent(dtFirebird, ATableName),
-      ActiveStr,
-      TimingStr,
-      EventsStr,
-      PosVal
-    ]
-  );
+  Result := Domain.TableDdlBuilder.BuildFirebirdTriggerHeader(
+    ATableName, ATriggerName, ATiming, AHasInsert, AHasUpdate, AHasDelete, AIsActive, APosition);
 end;
 
 function BuildFirebirdTriggerDDL(
@@ -367,24 +272,9 @@ function BuildFirebirdTriggerDDL(
   const APosition: Integer;
   const ABody: string
 ): string;
-var
-  CleanBody: string;
 begin
-  Result := BuildFirebirdTriggerHeader(
-    ATableName,
-    ATriggerName,
-    ATiming,
-    AHasInsert,
-    AHasUpdate,
-    AHasDelete,
-    AIsActive,
-    APosition
-  );
-  CleanBody := TrimRight(ABody);
-  if not StartsWithSqlKeyword(CleanBody, 'AS') then
-    Result := Result + LineEnding + 'AS';
-  if CleanBody <> '' then
-    Result := Result + LineEnding + CleanBody;
+  Result := Domain.TableDdlBuilder.BuildFirebirdTriggerDDL(
+    ATableName, ATriggerName, ATiming, AHasInsert, AHasUpdate, AHasDelete, AIsActive, APosition, ABody);
 end;
 
 function BuildNewTableTriggerTemplate(
@@ -392,55 +282,14 @@ function BuildNewTableTriggerTemplate(
   const ATableName, ATriggerName, ATiming: string;
   const AHasInsert, AHasUpdate, AHasDelete: Boolean
 ): string;
-var
-  TimingStr, EventsStr: string;
 begin
-  if ADbType = dtPostgreSQL then
-  begin
-    TimingStr := UpperCase(Trim(ATiming));
-    if (TimingStr <> 'BEFORE') and (TimingStr <> 'AFTER') and (TimingStr <> 'INSTEAD OF') then
-      TimingStr := 'BEFORE';
-    EventsStr := BuildTriggerEventsClause(AHasInsert, AHasUpdate, AHasDelete);
-    if EventsStr = '' then
-      EventsStr := 'INSERT';
-    Result :=
-      'CREATE TRIGGER ' + QuoteDbIdent(dtPostgreSQL, ATriggerName) + LineEnding +
-      TimingStr + ' ' + EventsStr + ' ON ' + QuoteDbIdent(dtPostgreSQL, ATableName) + LineEnding +
-      'FOR EACH ROW' + LineEnding +
-      'EXECUTE FUNCTION sua_funcao_trigger();';
-  end
-  else
-  begin
-    Result :=
-      'AS' + LineEnding +
-      'BEGIN' + LineEnding +
-      '  /* Código PSQL da trigger */' + LineEnding +
-      'END';
-  end;
+  Result := Domain.TableDdlBuilder.BuildNewTableTriggerTemplate(
+    ADbType, ATableName, ATriggerName, ATiming, AHasInsert, AHasUpdate, AHasDelete);
 end;
 
 function DecodeFirebirdDependencyType(const ADepType: Integer): string;
 begin
-  case ADepType of
-    0: Result := 'TABLE';
-    1: Result := 'VIEW';
-    2: Result := 'TRIGGER';
-    3: Result := 'COMPUTED FIELD';
-    4: Result := 'VALIDATION';
-    5: Result := 'PROCEDURE';
-    6: Result := 'EXPRESSION INDEX';
-    7: Result := 'EXCEPTION';
-    8: Result := 'USER';
-    9: Result := 'DOMAIN / FIELD';
-    10: Result := 'INDEX';
-    14: Result := 'GENERATOR';
-    15: Result := 'FUNCTION';
-    16: Result := 'BLOB FILTER';
-    18: Result := 'PACKAGE';
-    19: Result := 'PACKAGE BODY';
-  else
-    Result := Format('OBJECT(%d)', [ADepType]);
-  end;
+  Result := Domain.TableDdlBuilder.DecodeFirebirdDependencyType(ADepType);
 end;
 
 function TryResolveDependencyObjectKind(
@@ -448,40 +297,13 @@ function TryResolveDependencyObjectKind(
   const AObjectType: string;
   out AKind: TSchemaObjectKind
 ): Boolean;
-var
-  Up: string;
 begin
-  Result := True;
-  Up := UpperCase(Trim(AObjectType));
-  if (Up = 'TABLE') or
-     (Up = 'FOREIGN KEY (TABELA FILHA)') or
-     (Up = 'FOREIGN KEY (TABELA PAI)') then
-    AKind := sokTables
-  else if (Up = 'VIEW') or (Up = 'MATERIALIZED VIEW') then
-    AKind := sokViews
-  else if (Up = 'PROCEDURE') or ((ADbType = dtPostgreSQL) and (Up = 'FUNCTION')) then
-    AKind := sokProcedures
-  else if Up = 'TRIGGER' then
-    AKind := sokTriggers
-  else if (Up = 'GENERATOR') or (Up = 'SEQUENCE') then
-    AKind := sokGenerators
-  else
-    Result := False;
+  Result := Domain.TableDdlBuilder.TryResolveDependencyObjectKind(ADbType, AObjectType, AKind);
 end;
 
 function StripLeadingDefaultKeyword(const ADefaultSource: string): string;
-var
-  S: string;
 begin
-  S := Trim(ADefaultSource);
-  if SameText(S, 'DEFAULT') then
-    Exit('');
-  if (Length(S) > 7) and SameText(Copy(S, 1, 7), 'DEFAULT') and
-     (S[8] in [' ', #9, #10, #13]) then
-    S := Trim(Copy(S, 8, MaxInt));
-  if (Length(S) >= 1) and (S[1] = '=') then
-    S := Trim(Copy(S, 2, MaxInt));
-  Result := S;
+  Result := Domain.TableDdlBuilder.StripLeadingDefaultKeyword(ADefaultSource);
 end;
 
 function BuildAddColumnDDL(
@@ -489,19 +311,9 @@ function BuildAddColumnDDL(
   const ATableName, AColumnName, ADataType, ADefaultValue: string;
   const ANotNull: Boolean
 ): string;
-var
-  TblIdent, ColIdent, CleanType, CleanDef: string;
 begin
-  TblIdent := QuoteDbIdent(ADbType, ATableName);
-  ColIdent := QuoteDbIdent(ADbType, AColumnName);
-  CleanType := Trim(ADataType);
-  CleanDef := StripLeadingDefaultKeyword(ADefaultValue);
-
-  Result := Format('ALTER TABLE %s ADD %s %s', [TblIdent, ColIdent, CleanType]);
-  if CleanDef <> '' then
-    Result := Result + ' DEFAULT ' + CleanDef;
-  if ANotNull then
-    Result := Result + ' NOT NULL';
+  Result := Domain.TableDdlBuilder.BuildAddColumnDDL(
+    ADbType, ATableName, AColumnName, ADataType, ADefaultValue, ANotNull);
 end;
 
 procedure BuildEditColumnDDL(
@@ -513,80 +325,10 @@ procedure BuildEditColumnDDL(
   const AIsFirebird25: Boolean;
   const ATargetStatements: TStrings
 );
-var
-  TblIdent, OldColName, NewColName, CurColName, CurIdent, NewIdent: string;
-  OldType, NewType, OldDef, NewDef, SafeTbl, SafeCol: string;
 begin
-  if ATargetStatements = nil then
-    Exit;
-  ATargetStatements.Clear;
-
-  TblIdent := QuoteDbIdent(ADbType, ATableName);
-  OldColName := Trim(AOldCol.ColumnName);
-  NewColName := Trim(ANewName);
-  if NewColName = '' then
-    NewColName := OldColName;
-
-  CurColName := OldColName;
-  CurIdent := QuoteDbIdent(ADbType, CurColName);
-
-  { 1. Renomear coluna }
-  if not SameText(OldColName, NewColName) then
-  begin
-    NewIdent := QuoteDbIdent(ADbType, NewColName);
-    if ADbType = dtPostgreSQL then
-      ATargetStatements.Add(Format('ALTER TABLE %s RENAME COLUMN %s TO %s', [TblIdent, CurIdent, NewIdent]))
-    else
-      ATargetStatements.Add(Format('ALTER TABLE %s ALTER COLUMN %s TO %s', [TblIdent, CurIdent, NewIdent]));
-    CurColName := NewColName;
-    CurIdent := NewIdent;
-  end;
-
-  { 2. Alterar tipo de dados }
-  OldType := Trim(AOldCol.DataType);
-  NewType := Trim(ANewDataType);
-  if (NewType <> '') and (not SameText(OldType, NewType)) then
-    ATargetStatements.Add(Format('ALTER TABLE %s ALTER COLUMN %s TYPE %s', [TblIdent, CurIdent, NewType]));
-
-  { 3. Alterar valor padrão }
-  OldDef := StripLeadingDefaultKeyword(AOldCol.DefaultValue);
-  NewDef := StripLeadingDefaultKeyword(ANewDefaultValue);
-  if OldDef <> NewDef then
-  begin
-    if NewDef = '' then
-      ATargetStatements.Add(Format('ALTER TABLE %s ALTER COLUMN %s DROP DEFAULT', [TblIdent, CurIdent]))
-    else
-      ATargetStatements.Add(Format('ALTER TABLE %s ALTER COLUMN %s SET DEFAULT %s', [TblIdent, CurIdent, NewDef]));
-  end;
-
-  { 4. Alterar restrição NOT NULL }
-  if AOldCol.NotNull <> ANewNotNull then
-  begin
-    if (ADbType = dtPostgreSQL) or (not AIsFirebird25) then
-    begin
-      if ANewNotNull then
-        ATargetStatements.Add(Format('ALTER TABLE %s ALTER COLUMN %s SET NOT NULL', [TblIdent, CurIdent]))
-      else
-        ATargetStatements.Add(Format('ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL', [TblIdent, CurIdent]));
-    end
-    else
-    begin
-      SafeTbl := EscapeSqlStr(ATableName);
-      SafeCol := EscapeSqlStr(CurColName);
-      if ANewNotNull then
-        ATargetStatements.Add(Format(
-          'UPDATE RDB$RELATION_FIELDS SET RDB$NULL_FLAG = 1 ' +
-          'WHERE UPPER(TRIM(RDB$RELATION_NAME)) = UPPER(''%s'') AND UPPER(TRIM(RDB$FIELD_NAME)) = UPPER(''%s'')',
-          [SafeTbl, SafeCol]
-        ))
-      else
-        ATargetStatements.Add(Format(
-          'UPDATE RDB$RELATION_FIELDS SET RDB$NULL_FLAG = NULL ' +
-          'WHERE UPPER(TRIM(RDB$RELATION_NAME)) = UPPER(''%s'') AND UPPER(TRIM(RDB$FIELD_NAME)) = UPPER(''%s'')',
-          [SafeTbl, SafeCol]
-        ));
-    end;
-  end;
+  Domain.TableDdlBuilder.BuildEditColumnDDL(
+    ADbType, ATableName, AOldCol, ANewName, ANewDataType, ANewDefaultValue,
+    ANewNotNull, AIsFirebird25, ATargetStatements);
 end;
 
 function BuildDropColumnDDL(
@@ -594,10 +336,7 @@ function BuildDropColumnDDL(
   const ATableName, AColumnName: string
 ): string;
 begin
-  Result := Format('ALTER TABLE %s DROP %s', [
-    QuoteDbIdent(ADbType, ATableName),
-    QuoteDbIdent(ADbType, AColumnName)
-  ]);
+  Result := Domain.TableDdlBuilder.BuildDropColumnDDL(ADbType, ATableName, AColumnName);
 end;
 
 function BuildCreateIndexDDL(
@@ -606,51 +345,14 @@ function BuildCreateIndexDDL(
   const AColumns: TStrings;
   const AUnique, ADescending: Boolean
 ): string;
-var
-  I: Integer;
-  ColsStr, ColIdent, UniquePart, DescPart: string;
 begin
-  Result := '';
-  if (AColumns = nil) or (AColumns.Count = 0) or
-     (Trim(ATableName) = '') or (Trim(AIndexName) = '') then
-    Exit;
-
-  ColsStr := '';
-  for I := 0 to AColumns.Count - 1 do
-  begin
-    if Trim(AColumns[I]) = '' then
-      Continue;
-    if ColsStr <> '' then
-      ColsStr := ColsStr + ', ';
-    ColIdent := QuoteDbIdent(ADbType, Trim(AColumns[I]));
-    if (ADbType = dtPostgreSQL) and ADescending then
-      ColIdent := ColIdent + ' DESC';
-    ColsStr := ColsStr + ColIdent;
-  end;
-
-  if ColsStr = '' then
-    Exit;
-
-  UniquePart := '';
-  if AUnique then
-    UniquePart := 'UNIQUE ';
-
-  DescPart := '';
-  if (ADbType = dtFirebird) and ADescending then
-    DescPart := 'DESCENDING ';
-
-  Result := Format('CREATE %s%sINDEX %s ON %s (%s)', [
-    UniquePart,
-    DescPart,
-    QuoteDbIdent(ADbType, AIndexName),
-    QuoteDbIdent(ADbType, ATableName),
-    ColsStr
-  ]);
+  Result := Domain.TableDdlBuilder.BuildCreateIndexDDL(
+    ADbType, ATableName, AIndexName, AColumns, AUnique, ADescending);
 end;
 
 function BuildDropIndexDDL(const ADbType: TDatabaseType; const AIndexName: string): string;
 begin
-  Result := Format('DROP INDEX %s', [QuoteDbIdent(ADbType, AIndexName)]);
+  Result := Domain.TableDdlBuilder.BuildDropIndexDDL(ADbType, AIndexName);
 end;
 
 function BuildSetIndexActiveDDL(
@@ -659,12 +361,7 @@ function BuildSetIndexActiveDDL(
   const AActive: Boolean
 ): string;
 begin
-  if ADbType <> dtFirebird then
-    Exit('');
-  if AActive then
-    Result := Format('ALTER INDEX %s ACTIVE', [QuoteDbIdent(dtFirebird, AIndexName)])
-  else
-    Result := Format('ALTER INDEX %s INACTIVE', [QuoteDbIdent(dtFirebird, AIndexName)]);
+  Result := Domain.TableDdlBuilder.BuildSetIndexActiveDDL(ADbType, AIndexName, AActive);
 end;
 
 { TManageTableStructureUseCase }

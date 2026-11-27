@@ -7,7 +7,8 @@ interface
 uses
   Classes, SysUtils, SyncObjs, fpjson, jsonparser,
   Domain.DatabaseTypes,
-  Domain.QueryHistory;
+  Domain.QueryHistory,
+  Domain.AppLogger;
 
 type
   TJsonQueryHistoryService = class(TInterfacedObject, IQueryHistoryService)
@@ -134,6 +135,8 @@ begin
         Data.Free;
       end;
     except
+      on E: Exception do
+        LogException('JsonQueryHistoryRepository.Load', E);
     end;
     SL.Free;
   finally

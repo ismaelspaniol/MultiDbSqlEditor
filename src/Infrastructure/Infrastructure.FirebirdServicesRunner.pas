@@ -10,14 +10,15 @@ uses
   ibase60dyn,
   Domain.ConnectionProfile,
   Domain.MaintenanceTypes,
+  Domain.Interfaces,
   Infrastructure.FirebirdSqlDbProvider;
 
 type
-  TFbServiceLogProc = procedure(const ALine: string) of object;
-  TFbServiceCancelFunc = function: Boolean of object;
+  TFbServiceLogProc = TMaintenanceLogCallback;
+  TFbServiceCancelFunc = TMaintenanceCancelCheck;
 
   { Executor nativo via Firebird Services API (isc_service_attach/start/query/detach) }
-  TFirebirdServicesRunner = class
+  TFirebirdServicesRunner = class(TInterfacedObject, IFirebirdMaintenanceService)
   private
     function FormatStatusError(const AStatus: PISC_STATUS): string;
     function BuildServiceName(const AProfile: TConnectionProfile): string;
@@ -69,6 +70,12 @@ type
       const ACancelCheck: TFbServiceCancelFunc;
       out AMessage: string
     ): Boolean;
+  end;
+
+  { Fábrica para o serviço Firebird Services API }
+  TFirebirdServicesRunnerFactory = class(TInterfacedObject, IFirebirdMaintenanceServiceFactory)
+  public
+    function CreateService: IFirebirdMaintenanceService;
   end;
 
 implementation
@@ -710,6 +717,11 @@ begin
   finally
     DetachService(SvcHandle);
   end;
+end;
+
+function TFirebirdServicesRunnerFactory.CreateService: IFirebirdMaintenanceService;
+begin
+  Result := TFirebirdServicesRunner.Create;
 end;
 
 end.

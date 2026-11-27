@@ -46,6 +46,10 @@ flowchart TD
 | `Domain.DatabaseCompareTypes.pas` | Modelos de comparação de schemas (`TCompareOptions`, `TCompareDiffItem`, `TCompareResult`, categorias e status). |
 | `Domain.TableStructureTypes.pas` | Estruturas de tabela (`TTableStructure`, `TTableColumnInfo` com `Description`, `TTableIndexInfo`, `TTableForeignKeyInfo`, `UniqueConstraints`, `CheckConstraints`). |
 | `Domain.SqlAliasResolver.pas` | Extração de aliases SQL para autocompletar inteligente. |
+| `Domain.TableDdlBuilder.pas` | Geração pura de DDL de tabelas, colunas, índices e triggers por SGBD. |
+| `Domain.SqlScriptUtils.pas` | Divisor de scripts SQL (`SET TERM`, `$$`, comentários) e normalização de código. |
+| `Domain.AppLogger.pas` | Logger diagnóstico cross-platform (Windows/Linux), thread-safe, com rotação e ring-buffer. |
+| `Domain.AppVersion.pas` | Versão da aplicação, comparação SemVer e parser de releases do GitHub. |
 | `Domain.ScriptExecutionTypes.pas` | Tipos de execução em lote para o Script Executive. |
 | `Domain.MonitoringTypes.pas` | Tipos do monitor de conexões e transações ativas. |
 | `Domain.MaintenanceTypes.pas` | Tipos de Backup / Restore / Repair. |
@@ -67,7 +71,8 @@ flowchart TD
 | `Application.DatabaseComparerUseCase.pas` | **Database Comparer:** captura snapshot em lote, ordena Views/Procedures por dependência (`SortCodeItemsByDependency`), gera script de migração e aplica em transação única via `TApplyCompareScriptWorker`. |
 | `Application.ScriptExecutorUseCase.pas` | Execução de scripts multi-comando (com suporte a `SET TERM` no Firebird). |
 | `Application.DatabaseMonitoringUseCase.pas` | Consulta e encerramento de sessões/transações ativas no banco. |
-| `Application.DatabaseMaintenanceUseCase.pas` | Orquestração de Backup, Restore e validação/correção. |
+| `Application.DatabaseMaintenanceUseCase.pas` | Orquestração de Backup, Restore e validação/correção (via `IFirebirdMaintenanceServiceFactory`). |
+| `Application.CheckUpdateUseCase.pas` | Verificação de atualizações em background e preferências (`update_settings.json`). |
 
 ---
 
@@ -83,6 +88,7 @@ flowchart TD
 | `Infrastructure.JsonConnectionRepository.pas` | Persistência das conexões em JSON (`connections.json`), incluindo `environmentKind`. |
 | `Infrastructure.JsonQueryHistoryRepository.pas` | Persistência do histórico de queries executadas. |
 | `Infrastructure.JsonWorkspaceRepository.pas` | Persistência das abas abertas e layout em `workspace.json`. |
+| `Infrastructure.GitHubUpdateService.pas` | Consulta à API do GitHub Releases via `mORMot2` (`HttpGet`) com fallback `curl` (Windows/Linux). |
 
 ---
 
@@ -101,7 +107,7 @@ flowchart TD
 | `Presentation.DatabaseComparerFrame.pas` / `.lfm` | Interface do Database Comparer com destaque colorido linha a linha no diff DDL Origem vs Destino. |
 | `Presentation.DataImportForm.pas` | Ferramenta **Importar Dados (Import Data)** para `.xlsx`, `.xls`, `.csv`, `.txt` e `.tsv`, com suporte a tabela existente ou criação automática de nova tabela com inferência de tipos e mapeamento de colunas. |
 | `Presentation.DatabaseToolsForm.pas` | **Busca Global nos Metadados e Código-Fonte** (`TMetadataSearchForm`) e **Gerenciador de Índices e Estatísticas** (`TIndexManagerForm`). |
-| `Presentation.TableEditorFrame.pas` / `Form` | Editor visual de estrutura de tabelas (colunas, PK, índices, FKs, triggers, aba Dados com autocompletar no `WHERE`, importação/exportação e botão **Excluir Tabela...** com dupla confirmação). |
+| `Presentation.TableEditorFrame.pas` / `.lfm` | Editor visual de estrutura de tabelas (colunas, PK, índices, FKs, triggers, aba Dados com autocompletar no `WHERE`, importação/exportação e botão **Excluir Tabela...** com dupla confirmação). |
 | `Presentation.ScriptExecutorFrame.pas` / `.lfm` | Executor de scripts SQL em lote (incluindo execução direta do disco). |
 | `Presentation.DatabaseMonitorFrame.pas` / `.lfm` | Monitor de conexões/transações/consultas ativas. |
 | `Presentation.DatabaseMaintenanceForm.pas` / `.lfm` | Tela de Backup/Restore/Repair. |
@@ -112,6 +118,10 @@ flowchart TD
 | `Presentation.SqlCompletionController.pas` | Controlador de autocompletar SQL sensível ao contexto e aliases. |
 | `Presentation.SqlObjectLinkController.pas` | Controlador de navegação `Ctrl+Click` sobre objetos SQL no editor. |
 | `Presentation.SqlBeautifierHelper.pas` | Integração do formatador SQL (`Alt+F`) nos `TSynEdit`. |
+| `Presentation.DdlPreviewDialog.pas` | Diálogo de revisão/edição/changelog de DDL antes de alterações (estilo IBExpert). |
+| `Presentation.SqlEditorSearchBar.pas` | Barra global de busca e substituição (`Ctrl+F` / `Ctrl+H`) para editores `TSynEdit`. |
+| `Presentation.ConnectionComboSearch.pas` | Controlador reutilizável de busca instantânea em `TComboBox` de conexões. |
+| `Presentation.UpdateDialog.pas` | Diálogo de nova versão disponível com download direto por plataforma e notas da release. |
 
 ---
 

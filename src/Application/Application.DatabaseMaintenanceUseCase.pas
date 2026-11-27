@@ -12,7 +12,7 @@ uses
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
   Domain.MaintenanceTypes,
-  Infrastructure.FirebirdServicesRunner;
+  Domain.Interfaces;
 
 type
   TMaintenanceLogEvent = procedure(const ALine: string) of object;
@@ -27,6 +27,7 @@ type
   private
     FOpMode: Integer; // 0 = backup, 1 = restore, 2 = repair, 3 = custom CLI
     FProfile: TConnectionProfile;
+    FServiceFactory: IFirebirdMaintenanceServiceFactory;
     FBackupReq: TBackupRequest;
     FRestoreReq: TRestoreRequest;
     FRepairReq: TRepairRequest;
@@ -58,17 +59,20 @@ type
     constructor CreateBackup(
       const AReq: TBackupRequest;
       const AOnLog: TMaintenanceLogEvent;
-      const AOnComplete: TMaintenanceCompleteEvent
+      const AOnComplete: TMaintenanceCompleteEvent;
+      const AServiceFactory: IFirebirdMaintenanceServiceFactory = nil
     );
     constructor CreateRestore(
       const AReq: TRestoreRequest;
       const AOnLog: TMaintenanceLogEvent;
-      const AOnComplete: TMaintenanceCompleteEvent
+      const AOnComplete: TMaintenanceCompleteEvent;
+      const AServiceFactory: IFirebirdMaintenanceServiceFactory = nil
     );
     constructor CreateRepair(
       const AReq: TRepairRequest;
       const AOnLog: TMaintenanceLogEvent;
-      const AOnComplete: TMaintenanceCompleteEvent
+      const AOnComplete: TMaintenanceCompleteEvent;
+      const AServiceFactory: IFirebirdMaintenanceServiceFactory = nil
     );
     constructor CreateCustomCli(
       const AExe: string;
@@ -776,7 +780,8 @@ end;
 constructor TMaintenanceWorkerThread.CreateBackup(
   const AReq: TBackupRequest;
   const AOnLog: TMaintenanceLogEvent;
-  const AOnComplete: TMaintenanceCompleteEvent
+  const AOnComplete: TMaintenanceCompleteEvent;
+  const AServiceFactory: IFirebirdMaintenanceServiceFactory
 );
 begin
   inherited Create(True);
@@ -786,6 +791,7 @@ begin
   FCustomParams := TStringList.Create;
   FCustomEnv := TStringList.Create;
   FOpMode := 0;
+  FServiceFactory := AServiceFactory;
   FBackupReq := AReq;
   FProfile := AReq.Profile.Clone;
   FBackupReq.Profile := FProfile;
@@ -801,7 +807,8 @@ end;
 constructor TMaintenanceWorkerThread.CreateRestore(
   const AReq: TRestoreRequest;
   const AOnLog: TMaintenanceLogEvent;
-  const AOnComplete: TMaintenanceCompleteEvent
+  const AOnComplete: TMaintenanceCompleteEvent;
+  const AServiceFactory: IFirebirdMaintenanceServiceFactory
 );
 begin
   inherited Create(True);
@@ -811,6 +818,7 @@ begin
   FCustomParams := TStringList.Create;
   FCustomEnv := TStringList.Create;
   FOpMode := 1;
+  FServiceFactory := AServiceFactory;
   FRestoreReq := AReq;
   FProfile := AReq.Profile.Clone;
   FRestoreReq.Profile := FProfile;
@@ -826,7 +834,8 @@ end;
 constructor TMaintenanceWorkerThread.CreateRepair(
   const AReq: TRepairRequest;
   const AOnLog: TMaintenanceLogEvent;
-  const AOnComplete: TMaintenanceCompleteEvent
+  const AOnComplete: TMaintenanceCompleteEvent;
+  const AServiceFactory: IFirebirdMaintenanceServiceFactory
 );
 begin
   inherited Create(True);
@@ -836,6 +845,7 @@ begin
   FCustomParams := TStringList.Create;
   FCustomEnv := TStringList.Create;
   FOpMode := 2;
+  FServiceFactory := AServiceFactory;
   FRepairReq := AReq;
   FProfile := AReq.Profile.Clone;
   FRepairReq.Profile := FProfile;
@@ -1107,7 +1117,7 @@ end;
 
 procedure TMaintenanceWorkerThread.Execute;
 var
-  Runner: TFirebirdServicesRunner;
+  Svc: IFirebirdMaintenanceService;
   ExePath, DisplayCmd: string;
   Params, Env: TStringList;
 begin
@@ -1120,11 +1130,15 @@ begin
           begin
             if (FBackupReq.Profile.DatabaseType = dtFirebird) and (FBackupReq.Backend = febServicesApi) then
             begin
-              Runner := TFirebirdServicesRunner.Create;
-              try
-                FSuccess := Runner.RunBackup(FBackupReq, @AppendLogLine, @CheckCancelled, FMessage);
-              finally
-                Runner.Free;
+              if FServiceFactory = nil then
+              begin
+                FSuccess := False;
+                FMessage := 'Serviço Firebird Services API não configurado.';
+              end
+              else
+              begin
+                Svc := FServiceFactory.CreateService;
+                FSuccess := Svc.RunBackup(FBackupReq, @AppendLogLine, @CheckCancelled, FMessage);
               end;
             end
             else
@@ -1137,11 +1151,15 @@ begin
           begin
             if (FRestoreReq.Profile.DatabaseType = dtFirebird) and (FRestoreReq.Backend = febServicesApi) then
             begin
-              Runner := TFirebirdServicesRunner.Create;
-              try
-                FSuccess := Runner.RunRestore(FRestoreReq, @AppendLogLine, @CheckCancelled, FMessage);
-              finally
-                Runner.Free;
+              if FServiceFactory = nil then
+              begin
+                FSuccess := False;
+                FMessage := 'Serviço Firebird Services API não configurado.';
+              end
+              else
+              begin
+                Svc := FServiceFactory.CreateService;
+                FSuccess := Svc.RunRestore(FRestoreReq, @AppendLogLine, @CheckCancelled, FMessage);
               end;
             end
             else
@@ -1154,11 +1172,15 @@ begin
           begin
             if (FRepairReq.Profile.DatabaseType = dtFirebird) and (FRepairReq.Backend = febServicesApi) then
             begin
-              Runner := TFirebirdServicesRunner.Create;
-              try
-                FSuccess := Runner.RunRepair(FRepairReq, @AppendLogLine, @CheckCancelled, FMessage);
-              finally
-                Runner.Free;
+              if FServiceFactory = nil then
+              begin
+                FSuccess := False;
+                FMessage := 'Serviço Firebird Services API não configurado.';
+              end
+              else
+              begin
+                Svc := FServiceFactory.CreateService;
+                FSuccess := Svc.RunRepair(FRepairReq, @AppendLogLine, @CheckCancelled, FMessage);
               end;
             end
             else

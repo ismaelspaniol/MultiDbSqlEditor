@@ -28,6 +28,12 @@ uses
   Infrastructure.FirebirdSqlDbProvider,
   Infrastructure.MormotPostgresProvider,
   Infrastructure.MariaDbSqlDbProvider,
+  Infrastructure.FirebirdServicesRunner,
+  Infrastructure.GitHubUpdateService,
+  Domain.AppLogger,
+  Domain.AppVersion,
+  Application.CheckUpdateUseCase,
+  Presentation.UpdateDialog,
   Presentation.ConnectionForm,
   Presentation.SqlEditorFrame,
   Presentation.ObjectEditorFrame,
@@ -190,7 +196,17 @@ type
     procedure miToolQueryHistoryClick(Sender: TObject);
     procedure miToolReplicationClick(Sender: TObject);
     procedure miToolAboutClick(Sender: TObject);
+    procedure miToolCheckUpdatesClick(Sender: TObject);
+    procedure miToolAutoCheckUpdatesClick(Sender: TObject);
+    procedure miToolViewLogClick(Sender: TObject);
     procedure miToolConfirmDdlClick(Sender: TObject);
+    procedure StartUpdateCheck(const AManualCheck: Boolean);
+    procedure HandleUpdateCheckComplete(
+      const AWorker: TObject;
+      const AResult: TUpdateCheckResult;
+      const AManualCheck: Boolean
+    );
+    procedure RunStartupUpdateCheckAsync(Data: PtrInt);
     function HandleConfirmDDL(
       const AProfile: TConnectionProfile;
       const AOperationTitle: string;
@@ -219,6 +235,10 @@ type
     FManageObjects: TManageDatabaseObjectsUseCase;
     FMonitorUseCase: TDatabaseMonitoringUseCase;
     FManageTableStructure: TManageTableStructureUseCase;
+    FFbMaintenanceFactory: IFirebirdMaintenanceServiceFactory;
+    FUpdateService: IUpdateCheckService;
+    FUpdateUseCase: TCheckUpdateUseCase;
+    FUpdateWorker: TUpdateCheckWorkerThread;
     FConnections: TConnectionProfileList;
     FDatabaseProfiles: TConnectionProfileList;
     FQueryHistory: IQueryHistoryService;
@@ -237,6 +257,9 @@ type
     miConnIndexManager: TMenuItem;
     miConnImportData: TMenuItem;
     miToolAbout: TMenuItem;
+    miToolCheckUpdates: TMenuItem;
+    miToolAutoCheckUpdates: TMenuItem;
+    miToolViewLog: TMenuItem;
     miToolConfirmDdl: TMenuItem;
     pnlBrandHeader: TPanel;
     btnNewFolder: TButton;
@@ -410,6 +433,22 @@ begin
     miToolConfirmDdl.Checked := IsDdlPreviewEnabled;
     miToolConfirmDdl.OnClick := @miToolConfirmDdlClick;
     miMenuScriptExec.Parent.Add(miToolConfirmDdl);
+
+    miToolCheckUpdates := TMenuItem.Create(Self);
+    miToolCheckUpdates.Caption := 'Verificar Atualizações...';
+    miToolCheckUpdates.OnClick := @miToolCheckUpdatesClick;
+    miMenuScriptExec.Parent.Add(miToolCheckUpdates);
+
+    miToolAutoCheckUpdates := TMenuItem.Create(Self);
+    miToolAutoCheckUpdates.Caption := 'Verificar Atualizações ao Iniciar';
+    miToolAutoCheckUpdates.Checked := (FUpdateUseCase <> nil) and FUpdateUseCase.LoadSettings.AutoCheckOnStartup;
+    miToolAutoCheckUpdates.OnClick := @miToolAutoCheckUpdatesClick;
+    miMenuScriptExec.Parent.Add(miToolAutoCheckUpdates);
+
+    miToolViewLog := TMenuItem.Create(Self);
+    miToolViewLog.Caption := 'Ver Log Diagnóstico...';
+    miToolViewLog.OnClick := @miToolViewLogClick;
+    miMenuScriptExec.Parent.Add(miToolViewLog);
   end;
 
   miConnMetadataSearch := TMenuItem.Create(pmConnections);
@@ -478,6 +517,7 @@ begin
   InstallGlobalSqlEditorSearchHook;
   ApplyVisualTheme;
   StatusBar1.SimpleText := 'Pronto (F9 executa | Ctrl+F buscar | Alt+F formata SQL | Ctrl+F12 Script Executive | Ctrl+Espaço autocompleta)';
+  Forms.Application.QueueAsyncCall(@RunStartupUpdateCheckAsync, 0);
 end;
 
 procedure TMainForm.FormShortCut(var Msg: TLMKey; var Handled: Boolean);
@@ -573,6 +613,11 @@ end;
 
 procedure TMainForm.FormDestroy(Sender: TObject);
 begin
+  if FUpdateWorker <> nil then
+  begin
+    FUpdateWorker.Detach;
+    FUpdateWorker := nil;
+  end;
   UninstallGlobalSqlEditorSearchHook;
   Forms.Application.RemoveAsyncCalls(Self);
   SaveWorkspace;
@@ -580,6 +625,7 @@ begin
   FreeAndNil(FDatabaseProfiles);
   FreeAndNil(FWorkspaceRepo);
   FreeAndNil(FConnections);
+  FreeAndNil(FUpdateUseCase);
   FreeAndNil(FManageTableStructure);
   FreeAndNil(FMonitorUseCase);
   FreeAndNil(FManageObjects);
@@ -613,6 +659,9 @@ begin
   FManageTableStructure := TManageTableStructureUseCase.Create(FFactory);
   FManageTableStructure.OnConfirmDDL := @HandleConfirmDDL;
   FManageTableStructure.OnDDLExecuted := @HandleDDLExecuted;
+  FFbMaintenanceFactory := TFirebirdServicesRunnerFactory.Create;
+  FUpdateService := TGitHubUpdateService.Create;
+  FUpdateUseCase := TCheckUpdateUseCase.Create(FUpdateService);
 end;
 
 function TMainForm.CreateNodeData(
@@ -1658,7 +1707,7 @@ begin
     if Profile <> nil then
       TargetId := Profile.Id;
   end;
-  TDatabaseMaintenanceForm.Execute(FConnections, TargetId, AInitialTab);
+  TDatabaseMaintenanceForm.Execute(FConnections, TargetId, AInitialTab, FFbMaintenanceFactory);
 end;
 
 procedure TMainForm.RestoreWorkspace;
@@ -3338,7 +3387,11 @@ begin
     LblInfo.Left := 16;
     LblInfo.Top := 302;
     LblInfo.Font.Color := clWhite;
-    LblInfo.Caption := 'Multi-DB SQL Editor — PostgreSQL • Firebird • MariaDB';
+    LblInfo.Caption := Format('%s v%s (%s) — PostgreSQL • Firebird • MariaDB', [
+      APP_NAME,
+      APP_VERSION,
+      CurrentPlatformName
+    ]);
 
     BtnClose := TButton.Create(Dlg);
     BtnClose.Parent := Dlg;
@@ -3353,17 +3406,135 @@ begin
 
     BtnDocs := TButton.Create(Dlg);
     BtnDocs.Parent := Dlg;
-    BtnDocs.Caption := 'Ver Documentação Completa (F1)...';
-    BtnDocs.Width := 230;
+    BtnDocs.Caption := 'Ver Documentação (F1)...';
+    BtnDocs.Width := 175;
     BtnDocs.Height := 28;
     BtnDocs.Left := 16;
     BtnDocs.Top := 348;
     BtnDocs.OnClick := @miToolDocsClick;
 
+    with TButton.Create(Dlg) do
+    begin
+      Parent := Dlg;
+      Caption := 'Verificar Atualizações...';
+      Width := 165;
+      Height := 28;
+      Left := 199;
+      Top := 348;
+      OnClick := @miToolCheckUpdatesClick;
+    end;
+
     Dlg.ShowModal;
   finally
     Dlg.Free;
   end;
+end;
+
+procedure TMainForm.RunStartupUpdateCheckAsync(Data: PtrInt);
+begin
+  if (FUpdateUseCase <> nil) and FUpdateUseCase.ShouldRunAutoCheck then
+    StartUpdateCheck(False);
+end;
+
+procedure TMainForm.StartUpdateCheck(const AManualCheck: Boolean);
+begin
+  if FUpdateService = nil then
+    Exit;
+  if FUpdateWorker <> nil then
+  begin
+    if AManualCheck then
+      StatusBar1.SimpleText := 'Verificação de atualizações já está em andamento...';
+    Exit;
+  end;
+  if AManualCheck then
+    StatusBar1.SimpleText := 'Verificando atualizações no GitHub...';
+  FUpdateWorker := TUpdateCheckWorkerThread.Create(
+    FUpdateService,
+    AManualCheck,
+    @HandleUpdateCheckComplete
+  );
+  FUpdateWorker.Start;
+end;
+
+procedure TMainForm.HandleUpdateCheckComplete(
+  const AWorker: TObject;
+  const AResult: TUpdateCheckResult;
+  const AManualCheck: Boolean
+);
+var
+  IgnoreVer: Boolean;
+  Settings: TUpdateSettings;
+begin
+  if FUpdateWorker = AWorker then
+    FUpdateWorker := nil;
+
+  if not AResult.Success then
+  begin
+    LogWarn('UpdateCheck', AResult.ErrorMessage);
+    if AManualCheck then
+    begin
+      StatusBar1.SimpleText := 'Falha ao verificar atualizações.';
+      MessageDlg(
+        'Verificar Atualizações',
+        'Não foi possível consultar atualizações no momento:' + LineEnding + AResult.ErrorMessage,
+        mtWarning,
+        [mbOK],
+        0
+      );
+    end;
+    Exit;
+  end;
+
+  if FUpdateUseCase <> nil then
+    FUpdateUseCase.MarkCheckedNow;
+
+  if AResult.UpdateAvailable then
+  begin
+    if (not AManualCheck) and (FUpdateUseCase <> nil) then
+    begin
+      Settings := FUpdateUseCase.LoadSettings;
+      if SameText(Settings.IgnoredVersion, AResult.LatestVersion) then
+        Exit;
+    end;
+    StatusBar1.SimpleText := Format('Nova versão disponível: v%s', [AResult.LatestVersion]);
+    TUpdateDialog.Execute(AResult, IgnoreVer);
+    if IgnoreVer and (FUpdateUseCase <> nil) then
+      FUpdateUseCase.MarkCheckedNow(AResult.LatestVersion);
+  end
+  else if AManualCheck then
+  begin
+    StatusBar1.SimpleText := Format('Você já está na versão mais recente (v%s).', [APP_VERSION]);
+    MessageDlg(
+      'Verificar Atualizações',
+      Format('Você já está utilizando a versão mais recente (%s v%s).', [APP_NAME, APP_VERSION]),
+      mtInformation,
+      [mbOK],
+      0
+    );
+  end;
+end;
+
+procedure TMainForm.miToolCheckUpdatesClick(Sender: TObject);
+begin
+  StartUpdateCheck(True);
+end;
+
+procedure TMainForm.miToolAutoCheckUpdatesClick(Sender: TObject);
+var
+  Settings: TUpdateSettings;
+begin
+  if FUpdateUseCase = nil then
+    Exit;
+  Settings := FUpdateUseCase.LoadSettings;
+  Settings.AutoCheckOnStartup := not Settings.AutoCheckOnStartup;
+  FUpdateUseCase.SaveSettings(Settings);
+  if miToolAutoCheckUpdates <> nil then
+    miToolAutoCheckUpdates.Checked := Settings.AutoCheckOnStartup;
+end;
+
+procedure TMainForm.miToolViewLogClick(Sender: TObject);
+begin
+  TDiagnosticLogDialog.Execute;
 end;
 
 procedure TMainForm.ApplyVisualTheme;

@@ -7,7 +7,7 @@ interface
 uses
   Classes, SysUtils, Math, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
   Clipbrd, LCLType, fpjson, jsonparser, SynEdit, SynHighlighterSQL,
-  Domain.DatabaseTypes, Domain.ConnectionProfile;
+  Domain.DatabaseTypes, Domain.ConnectionProfile, Domain.AppLogger;
 
 function IsDdlPreviewEnabled: Boolean;
 procedure SetDdlPreviewEnabled(const AEnabled: Boolean);
@@ -80,7 +80,8 @@ begin
         Data.Free;
       end;
     except
-      { Ignore corrupt settings file and keep defaults }
+      on E: Exception do
+        LogException('DdlPreviewDialog.LoadSettings', E);
     end;
   finally
     SL.Free;
@@ -102,6 +103,8 @@ begin
     try
       SL.SaveToFile(SettingsFilePath);
     except
+      on E: Exception do
+        LogException('DdlPreviewDialog.SaveSettings', E);
     end;
   finally
     SL.Free;

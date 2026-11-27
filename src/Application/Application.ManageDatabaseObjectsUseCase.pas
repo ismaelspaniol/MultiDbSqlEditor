@@ -156,35 +156,9 @@ begin
   Result := StringReplace(Trim(AValue), '''', '''''', [rfReplaceAll]);
 end;
 
-function NeedsFirebirdQuotes(const AName: string): Boolean;
-var
-  I: Integer;
-begin
-  if AName = '' then
-    Exit(True);
-  if not (AName[1] in ['A'..'Z', '_']) then
-    Exit(True);
-  for I := 2 to Length(AName) do
-  begin
-    if not (AName[I] in ['A'..'Z', '0'..'9', '_', '$']) then
-      Exit(True);
-  end;
-  Result := False;
-end;
-
 function QuoteDbIdent(const ADbType: TDatabaseType; const AName: string): string;
-var
-  Cleaned: string;
 begin
-  Cleaned := Trim(AName);
-  if ADbType = dtPostgreSQL then
-    Result := '"' + StringReplace(Cleaned, '"', '""', [rfReplaceAll]) + '"'
-  else if ADbType = dtMariaDB then
-    Result := '`' + StringReplace(Cleaned, '`', '``', [rfReplaceAll]) + '`'
-  else if NeedsFirebirdQuotes(Cleaned) then
-    Result := '"' + StringReplace(Cleaned, '"', '""', [rfReplaceAll]) + '"'
-  else
-    Result := Cleaned;
+  Result := Domain.DatabaseTypes.QuoteDbIdent(ADbType, AName);
 end;
 
 function DecodeFirebirdFieldType(

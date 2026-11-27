@@ -9,7 +9,8 @@ uses
   SysUtils,
   Generics.Collections,
   fpjson,
-  jsonparser;
+  jsonparser,
+  Domain.AppLogger;
 
 type
   TWorkspaceTabState = record
@@ -130,7 +131,8 @@ begin
         Data.Free;
       end;
     except
-      { Se o arquivo estiver corrompido, inicia limpo }
+      on E: Exception do
+        LogException('JsonWorkspaceRepository.Load', E);
     end;
   finally
     SL.Free;

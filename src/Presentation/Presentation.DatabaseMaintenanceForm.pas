@@ -139,6 +139,7 @@ type
     procedure PanelsResize(Sender: TObject);
   private
     FProfiles: TConnectionProfileList;
+    FFbServiceFactory: IFirebirdMaintenanceServiceFactory;
     FWorker: TMaintenanceWorkerThread;
     FIsRunning: Boolean;
     FStartTick: QWord;
@@ -162,7 +163,8 @@ type
     class procedure Execute(
       const AConnections: TConnectionProfileList;
       const AInitialProfileId: string = '';
-      const AInitialTab: TMaintenanceTabKind = mtkBackup
+      const AInitialTab: TMaintenanceTabKind = mtkBackup;
+      const AFbServiceFactory: IFirebirdMaintenanceServiceFactory = nil
     );
   end;
 
@@ -173,13 +175,15 @@ implementation
 class procedure TDatabaseMaintenanceForm.Execute(
   const AConnections: TConnectionProfileList;
   const AInitialProfileId: string;
-  const AInitialTab: TMaintenanceTabKind
+  const AInitialTab: TMaintenanceTabKind;
+  const AFbServiceFactory: IFirebirdMaintenanceServiceFactory
 );
 var
   Frm: TDatabaseMaintenanceForm;
 begin
   Frm := TDatabaseMaintenanceForm.Create(nil);
   try
+    Frm.FFbServiceFactory := AFbServiceFactory;
     Frm.PopulateConnections(AConnections, AInitialProfileId);
     case AInitialTab of
       mtkBackup: Frm.pgMaintenance.ActivePage := Frm.tsBackup;
@@ -708,7 +712,7 @@ begin
   AppendOutputLine('');
   AppendOutputLine(Format('=== [%s] Iniciando Backup de "%s" ===', [FormatDateTime('hh:nn:ss', Now), Req.Profile.Name]));
   SetRunningState(True, 'Executando Backup');
-  FWorker := TMaintenanceWorkerThread.CreateBackup(Req, @HandleWorkerLog, @HandleWorkerComplete);
+  FWorker := TMaintenanceWorkerThread.CreateBackup(Req, @HandleWorkerLog, @HandleWorkerComplete, FFbServiceFactory);
   FWorker.Start;
 end;
 
@@ -754,7 +758,7 @@ begin
   AppendOutputLine('');
   AppendOutputLine(Format('=== [%s] Iniciando Restore para "%s" ===', [FormatDateTime('hh:nn:ss', Now), Req.TargetDatabaseOrName]));
   SetRunningState(True, 'Executando Restore');
-  FWorker := TMaintenanceWorkerThread.CreateRestore(Req, @HandleWorkerLog, @HandleWorkerComplete);
+  FWorker := TMaintenanceWorkerThread.CreateRestore(Req, @HandleWorkerLog, @HandleWorkerComplete, FFbServiceFactory);
   FWorker.Start;
 end;
 
@@ -799,7 +803,7 @@ begin
   AppendOutputLine('');
   AppendOutputLine(Format('=== [%s] Manutenção/Correção em "%s" ===', [FormatDateTime('hh:nn:ss', Now), Req.Profile.Name]));
   SetRunningState(True, 'Executando Correção');
-  FWorker := TMaintenanceWorkerThread.CreateRepair(Req, @HandleWorkerLog, @HandleWorkerComplete);
+  FWorker := TMaintenanceWorkerThread.CreateRepair(Req, @HandleWorkerLog, @HandleWorkerComplete, FFbServiceFactory);
   FWorker.Start;
 end;
 

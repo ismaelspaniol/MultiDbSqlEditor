@@ -9,7 +9,8 @@ uses
   Generics.Collections,
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
-  Domain.QueryResult;
+  Domain.QueryResult,
+  Domain.MaintenanceTypes;
 
 const
   DDL_CANCELLED_MESSAGE = '__DDL_CANCELLED__';
@@ -79,6 +80,44 @@ type
     procedure AddFolder(const AFolderName: string);
     procedure RenameFolder(const AOldName, ANewName: string);
     procedure DeleteFolder(const AFolderName: string);
+  end;
+
+  TMaintenanceLogCallback = procedure(const ALine: string) of object;
+  TMaintenanceCancelCheck = function: Boolean of object;
+
+  { Serviço de execução nativa da Firebird Services API }
+  IFirebirdMaintenanceService = interface
+    ['{8F6A52F0-8A2C-4E1C-A31B-6C9E01B5A005}']
+    function RunBackup(
+      const AReq: TBackupRequest;
+      const AOnLog: TMaintenanceLogCallback;
+      const ACancelCheck: TMaintenanceCancelCheck;
+      out AMessage: string
+    ): Boolean;
+    function RunRestore(
+      const AReq: TRestoreRequest;
+      const AOnLog: TMaintenanceLogCallback;
+      const ACancelCheck: TMaintenanceCancelCheck;
+      out AMessage: string
+    ): Boolean;
+    function RunRepair(
+      const AReq: TRepairRequest;
+      const AOnLog: TMaintenanceLogCallback;
+      const ACancelCheck: TMaintenanceCancelCheck;
+      out AMessage: string
+    ): Boolean;
+  end;
+
+  { Fábrica para criação do serviço Firebird Services API }
+  IFirebirdMaintenanceServiceFactory = interface
+    ['{8F6A52F0-8A2C-4E1C-A31B-6C9E01B5A006}']
+    function CreateService: IFirebirdMaintenanceService;
+  end;
+
+  { Serviço de busca de informações de atualização (ex.: GitHub Releases API) }
+  IUpdateCheckService = interface
+    ['{8F6A52F0-8A2C-4E1C-A31B-6C9E01B5A007}']
+    function FetchLatestReleaseJson(out AJsonText, AErrorMessage: string): Boolean;
   end;
 
   function IsDdlCancelledMessage(const AMessage: string): Boolean;
