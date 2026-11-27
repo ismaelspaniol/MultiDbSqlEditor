@@ -14,6 +14,7 @@ uses
   Application.ManageDatabaseObjectsUseCase,
   Presentation.QueryResultGridFrame,
   Presentation.SqlCompletionController,
+  Presentation.SqlObjectLinkController,
   Presentation.ProcedureParamsForm,
   Presentation.ProcedureDebugForm;
 
@@ -64,6 +65,8 @@ type
     FUpdatingToolbarSize: Boolean;
     FLastToolbarWidth: Integer;
     FCompletionCtrl: TSqlCompletionController;
+    FLinkCtrl: TSqlObjectLinkController;
+    FOnOpenObject: TOpenDbObjectLinkEvent;
     FResultGrid: TQueryResultGridFrame;
     FLastResult: TQueryResult;
     FLastParamValues: TProcedureParamValueArray;
@@ -82,6 +85,7 @@ type
     procedure UpdateTitleAndButtons;
     function GetCompletionProfile: TConnectionProfile;
     function ExecuteCompletionMetadataQuery(const ASQL: string): TQueryResult;
+    procedure HandleOpenObjectLink(const AProfile: TConnectionProfile; const AKind: TSchemaObjectKind; const AObjectName: string);
     procedure HandleGridExportedCsv(Sender: TObject; const AFileName: string);
     function TryExtractObjectNameFromDDL(const ADDL: string): string;
   public
@@ -100,6 +104,7 @@ type
     property ObjectName: string read FObjectName;
     property OnObjectChanged: TObjectChangedEvent read FOnObjectChanged write FOnObjectChanged;
     property OnOpenViewData: TOpenViewDataEvent read FOnOpenViewData write FOnOpenViewData;
+    property OnOpenObject: TOpenDbObjectLinkEvent read FOnOpenObject write FOnOpenObject;
   end;
 
 implementation
@@ -123,6 +128,18 @@ procedure TObjectEditorFrame.ClearMetadataCache;
 begin
   if FCompletionCtrl <> nil then
     FCompletionCtrl.ClearMetadataCache;
+  if FLinkCtrl <> nil then
+    FLinkCtrl.ClearCache;
+end;
+
+procedure TObjectEditorFrame.HandleOpenObjectLink(
+  const AProfile: TConnectionProfile;
+  const AKind: TSchemaObjectKind;
+  const AObjectName: string
+);
+begin
+  if Assigned(FOnOpenObject) then
+    FOnOpenObject(AProfile, AKind, AObjectName);
 end;
 
 function TObjectEditorFrame.GetCompletionProfile: TConnectionProfile;
@@ -424,6 +441,20 @@ begin
   SynSQLSyn1.Enabled := True;
   SynEdit1.Highlighter := SynSQLSyn1;
   SynEdit1.Keystrokes.ResetDefaults;
+  if FLinkCtrl = nil then
+    FLinkCtrl := TSqlObjectLinkController.Create(
+      Self,
+      SynEdit1,
+      SynSQLSyn1,
+      @GetCompletionProfile,
+      @ExecuteCompletionMetadataQuery,
+      @HandleOpenObjectLink
+    );
+  FLinkCtrl.ClearCache;
+  try
+    FLinkCtrl.EnsureLoaded;
+  except
+  end;
   FOriginalDDL := AInitialDDL;
   FIsLoadingDDL := True;
   try
@@ -495,7 +526,7 @@ begin
 
   Screen.Cursor := crHourGlass;
   try
-    if FUseCase.CompileDDL(FProfile, SynEdit1.Lines.Text, Msg) then
+    if FUseCase.CompileDDL(FProfile, SynEdit1.Lines.Text, Msg, 'Compilar DDL: ' + FObjectName) then
     begin
       FOriginalDDL := SynEdit1.Lines.Text;
       SetDirty(False);
@@ -525,6 +556,8 @@ begin
       if Assigned(FOnObjectChanged) then
         FOnObjectChanged(FProfile.Id, FObjectKind);
     end
+    else if IsDdlCancelledMessage(Msg) then
+      LogMessage('Compilação cancelada pelo usuário.')
     else
     begin
       LogMessage('ERRO AO COMPILAR: ' + Msg);
@@ -849,6 +882,8 @@ begin
       if Assigned(FOnObjectChanged) then
         FOnObjectChanged(FProfile.Id, FObjectKind);
     end
+    else if IsDdlCancelledMessage(Msg) then
+      LogMessage('Exclusão cancelada pelo usuário.')
     else
     begin
       LogMessage('ERRO AO EXCLUIR: ' + Msg);

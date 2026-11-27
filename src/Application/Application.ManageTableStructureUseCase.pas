@@ -19,11 +19,14 @@ type
   TManageTableStructureUseCase = class
   private
     FFactory: IDatabaseProviderFactory;
+    FOnConfirmDDL: TDdlConfirmCallback;
+    FOnDDLExecuted: TDdlExecutedCallback;
     function ExecuteQuery(const ASession: IDatabaseSession; const ASQL: string): TQueryResult;
     function ExecuteDDLStatements(
       const AProfile: TConnectionProfile;
       const AStatements: TStrings;
-      out AMessage: string
+      out AMessage: string;
+      const AOperationTitle: string = 'Alteração de Estrutura de Tabela'
     ): Boolean;
     procedure LoadFirebirdStructure(
       const ASession: IDatabaseSession;
@@ -138,6 +141,8 @@ type
       const ASQL: string
     ): TQueryResult;
     property Factory: IDatabaseProviderFactory read FFactory;
+    property OnConfirmDDL: TDdlConfirmCallback read FOnConfirmDDL write FOnConfirmDDL;
+    property OnDDLExecuted: TDdlExecutedCallback read FOnDDLExecuted write FOnDDLExecuted;
   end;
 
 procedure AddUniqueDependencyToArray(
@@ -684,17 +689,45 @@ begin
   end;
 end;
 
+function FormatStatementsForPreview(const AStatements: TStrings): string;
+var
+  I: Integer;
+  S: string;
+begin
+  Result := '';
+  if (AStatements = nil) or (AStatements.Count = 0) then
+    Exit;
+  if AStatements.Count = 1 then
+    Exit(Trim(AStatements[0]));
+  for I := 0 to AStatements.Count - 1 do
+  begin
+    S := Trim(AStatements[I]);
+    if S = '' then
+      Continue;
+    if Result <> '' then
+      Result := Result + LineEnding;
+    if (S[Length(S)] <> ';') and (S[Length(S)] <> '^') then
+      Result := Result + S + ';'
+    else
+      Result := Result + S;
+  end;
+end;
+
 function TManageTableStructureUseCase.ExecuteDDLStatements(
   const AProfile: TConnectionProfile;
   const AStatements: TStrings;
-  out AMessage: string
+  out AMessage: string;
+  const AOperationTitle: string
 ): Boolean;
 var
   Provider: IDatabaseProvider;
   Session: IDatabaseSession;
   Res: TQueryResult;
   I: Integer;
-  Stmt: string;
+  Stmt, PreviewScript, EditedScript: string;
+  ExecStmts: TStringList;
+  AllowEdit: Boolean;
+  StartTick: QWord;
 begin
   Result := False;
   AMessage := '';
@@ -710,43 +743,68 @@ begin
     Exit;
   end;
 
-  Provider := FFactory.GetProvider(AProfile.DatabaseType);
-  Session := Provider.CreateSession(AProfile);
+  ExecStmts := TStringList.Create;
   try
-    Session.Connect;
-    Session.StartTransaction;
-    try
-      for I := 0 to AStatements.Count - 1 do
+    ExecStmts.Assign(AStatements);
+    PreviewScript := FormatStatementsForPreview(ExecStmts);
+    if Assigned(FOnConfirmDDL) then
+    begin
+      AllowEdit := (ExecStmts.Count = 1);
+      if not FOnConfirmDDL(AProfile, AOperationTitle, PreviewScript, EditedScript, AllowEdit) then
       begin
-        Stmt := Trim(AStatements[I]);
-        if Stmt = '' then
-          Continue;
-        Res := Session.ExecuteSQL(Stmt, False, 0);
-        try
-          if not Res.Success then
-            raise Exception.Create(Res.MessageText);
-        finally
-          Res.Free;
-        end;
+        AMessage := DDL_CANCELLED_MESSAGE;
+        Exit;
       end;
-      Session.Commit;
-      Result := True;
-      AMessage := 'Operação executada com sucesso.';
-    except
-      on E: Exception do
+      if AllowEdit and (Trim(EditedScript) <> '') and (Trim(EditedScript) <> Trim(PreviewScript)) then
       begin
-        if Session.InTransaction then
-        begin
-          try
-            Session.Rollback;
-          except
-          end;
-        end;
-        AMessage := E.Message;
+        ExecStmts[0] := Trim(EditedScript);
+        PreviewScript := Trim(EditedScript);
       end;
     end;
+
+    StartTick := GetTickCount64;
+    Provider := FFactory.GetProvider(AProfile.DatabaseType);
+    Session := Provider.CreateSession(AProfile);
+    try
+      Session.Connect;
+      Session.StartTransaction;
+      try
+        for I := 0 to ExecStmts.Count - 1 do
+        begin
+          Stmt := Trim(ExecStmts[I]);
+          if Stmt = '' then
+            Continue;
+          Res := Session.ExecuteSQL(Stmt, False, 0);
+          try
+            if not Res.Success then
+              raise Exception.Create(Res.MessageText);
+          finally
+            Res.Free;
+          end;
+        end;
+        Session.Commit;
+        Result := True;
+        AMessage := 'Operação executada com sucesso.';
+        if Assigned(FOnDDLExecuted) then
+          FOnDDLExecuted(AProfile, AOperationTitle, PreviewScript, Int64(GetTickCount64 - StartTick));
+      except
+        on E: Exception do
+        begin
+          if Session.InTransaction then
+          begin
+            try
+              Session.Rollback;
+            except
+            end;
+          end;
+          AMessage := E.Message;
+        end;
+      end;
+    finally
+      Session.Disconnect;
+    end;
   finally
-    Session.Disconnect;
+    ExecStmts.Free;
   end;
 end;
 
@@ -2607,7 +2665,7 @@ begin
   Stmts := TStringList.Create;
   try
     Stmts.Add(BuildAddColumnDDL(AProfile.DatabaseType, ATableName, AColumnName, ADataType, ADefaultValue, ANotNull));
-    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Adicionar Campo na Tabela ' + ATableName);
     if Result then
       AMessage := Format('Campo "%s" adicionado com sucesso.', [Trim(AColumnName)]);
   finally
@@ -2641,10 +2699,11 @@ begin
       IsFB25,
       Stmts
     );
-    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Alterar Campo da Tabela ' + ATableName);
 
     { Caso Firebird esteja em Auto e seja 2.5, ALTER COLUMN SET/DROP NOT NULL falha por sintaxe: faz fallback }
-    if (not Result) and (AProfile.DatabaseType = dtFirebird) and
+    if (not Result) and (not IsDdlCancelledMessage(AMessage)) and
+       (AProfile.DatabaseType = dtFirebird) and
        (AProfile.FirebirdVersion = fvAuto) and (AOldCol.NotNull <> ANewNotNull) and
        ((Pos('token unknown', LowerCase(AMessage)) > 0) or (Pos('-104', AMessage) > 0)) then
     begin
@@ -2660,7 +2719,7 @@ begin
         True,
         Stmts
       );
-      Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+      Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Alterar Campo da Tabela ' + ATableName);
     end;
 
     if Result then
@@ -2681,7 +2740,7 @@ begin
   Stmts := TStringList.Create;
   try
     Stmts.Add(BuildDropColumnDDL(AProfile.DatabaseType, ATableName, AColumnName));
-    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Excluir Campo da Tabela ' + ATableName);
     if Result then
       AMessage := Format('Campo "%s" excluído com sucesso.', [Trim(AColumnName)]);
   finally
@@ -2710,7 +2769,7 @@ begin
   Stmts := TStringList.Create;
   try
     Stmts.Add(DDL);
-    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Criar Índice na Tabela ' + ATableName);
     if Result then
       AMessage := Format('Índice "%s" criado com sucesso.', [Trim(AIndexName)]);
   finally
@@ -2729,7 +2788,7 @@ begin
   Stmts := TStringList.Create;
   try
     Stmts.Add(BuildDropIndexDDL(AProfile.DatabaseType, AIndexName));
-    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Excluir Índice ' + AIndexName);
     if Result then
       AMessage := Format('Índice "%s" excluído com sucesso.', [Trim(AIndexName)]);
   finally
@@ -2757,7 +2816,10 @@ begin
   Stmts := TStringList.Create;
   try
     Stmts.Add(DDL);
-    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+    if AActive then
+      Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Ativar Índice ' + AIndexName)
+    else
+      Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Inativar Índice ' + AIndexName);
     if Result then
     begin
       if AActive then
@@ -2789,7 +2851,7 @@ begin
   Stmts := TStringList.Create;
   try
     Stmts.Add('DROP TABLE ' + QuoteDbIdent(AProfile.DatabaseType, Trim(ATableName)));
-    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Excluir Tabela ' + ATableName);
     if Result then
       AMessage := Format('Tabela "%s" excluída com sucesso.', [Trim(ATableName)]);
   finally
@@ -2838,7 +2900,7 @@ begin
           [QuoteDbIdent(dtPostgreSQL, DropName), QuoteDbIdent(dtPostgreSQL, ATableName)]
         ));
       Stmts.Add(DDL);
-      Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+      Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Compilar Trigger ' + Trim(ATriggerName) + ' (' + ATableName + ')');
       if Result then
         AMessage := Format('Trigger "%s" compilada com sucesso.', [Trim(ATriggerName)]);
     end
@@ -2872,7 +2934,7 @@ begin
           ACodeText
         ));
       end;
-      Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+      Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Compilar Trigger ' + Trim(ATriggerName) + ' (' + ATableName + ')');
       if Result then
       begin
         if Trim(ATriggerName) <> '' then
@@ -2922,7 +2984,10 @@ begin
   Stmts := TStringList.Create;
   try
     Stmts.Add(SQL);
-    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+    if AActive then
+      Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Ativar Trigger ' + ATriggerName)
+    else
+      Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Inativar Trigger ' + ATriggerName);
     if Result then
     begin
       if AActive then
@@ -2961,7 +3026,7 @@ begin
     else
       Stmts.Add(Format('DROP TRIGGER %s', [QuoteDbIdent(dtFirebird, ATriggerName)]));
 
-    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage);
+    Result := ExecuteDDLStatements(AProfile, Stmts, AMessage, 'Excluir Trigger ' + ATriggerName);
     if Result then
       AMessage := Format('Trigger "%s" excluída com sucesso.', [Trim(ATriggerName)]);
   finally

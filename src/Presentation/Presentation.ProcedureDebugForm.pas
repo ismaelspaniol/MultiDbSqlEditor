@@ -217,6 +217,7 @@ begin
   edtResultsFilter.Visible := False;
   edtResultsFilter.OnChange := @edtResultsFilterChange;
 
+  SynEdit1.Keystrokes.ResetDefaults;
   SetupGrids;
 end;
 

@@ -12,7 +12,8 @@ uses
   Domain.QueryResult,
   Domain.Interfaces,
   Application.ManageDatabaseObjectsUseCase,
-  Presentation.SqlObjectLinkController;
+  Presentation.SqlObjectLinkController,
+  Presentation.DdlPreviewDialog;
 
 type
   TMetadataSearchHit = record
@@ -88,7 +89,7 @@ type
     procedure BuildUI(const AInitialProfileId: string);
     function SelectedProfile: TConnectionProfile;
     procedure LoadIndexes;
-    procedure ExecuteAdminSql(const ASQL, ASuccessMsg: string);
+    procedure ExecuteAdminSql(const ASQL, ASuccessMsg: string; const AOperationTitle: string = 'Manutenção de Índice');
     procedure cbConnectionChange(Sender: TObject);
     procedure btnRefreshClick(Sender: TObject);
     procedure btnRecomputeOneClick(Sender: TObject);
@@ -828,15 +829,18 @@ begin
   end;
 end;
 
-procedure TIndexManagerForm.ExecuteAdminSql(const ASQL, ASuccessMsg: string);
+procedure TIndexManagerForm.ExecuteAdminSql(const ASQL, ASuccessMsg: string; const AOperationTitle: string);
 var
   Profile: TConnectionProfile;
   Provider: IDatabaseProvider;
   Session: IDatabaseSession;
   Res: TQueryResult;
+  FinalSQL: string;
 begin
   Profile := SelectedProfile;
   if Profile = nil then
+    Exit;
+  if not ConfirmAndPreviewDDL(Profile, AOperationTitle, ASQL, FinalSQL, True) then
     Exit;
   Screen.Cursor := crHourGlass;
   try
@@ -844,7 +848,7 @@ begin
     Session := Provider.CreateSession(Profile);
     try
       Session.Connect;
-      Res := Session.ExecuteSQL(ASQL, True, 0);
+      Res := Session.ExecuteSQL(FinalSQL, True, 0);
       try
         if not Res.Success then
         begin
@@ -890,13 +894,31 @@ var
   Session: IDatabaseSession;
   Res: TQueryResult;
   R: Integer;
-  SQL: string;
+  SQL, BatchPreview, Ignored: string;
 begin
   Profile := SelectedProfile;
   if (Profile = nil) or (grdIndexes.RowCount <= 1) then
     Exit;
-  if MessageDlg('Confirmar', Format('Recalcular estatísticas de %d índice(s)?', [grdIndexes.RowCount - 1]),
-    mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+
+  BatchPreview := '';
+  for R := 1 to grdIndexes.RowCount - 1 do
+  begin
+    if Profile.DatabaseType = dtFirebird then
+      SQL := 'SET STATISTICS INDEX ' + QuoteDbIdent(dtFirebird, grdIndexes.Cells[0, R])
+    else if Profile.DatabaseType = dtPostgreSQL then
+      SQL := 'ANALYZE ' + QuoteDbIdent(dtPostgreSQL, grdIndexes.Cells[1, R])
+    else
+      SQL := 'ANALYZE TABLE ' + QuoteDbIdent(dtMariaDB, grdIndexes.Cells[1, R]);
+    BatchPreview := BatchPreview + SQL + ';' + LineEnding;
+  end;
+
+  if not ConfirmAndPreviewDDL(
+       Profile,
+       Format('Recalcular Estatísticas (%d índices)', [grdIndexes.RowCount - 1]),
+       BatchPreview,
+       Ignored,
+       False
+     ) then
     Exit;
 
   Screen.Cursor := crHourGlass;
@@ -1069,7 +1091,8 @@ begin
     '• Múltiplos Resultados e Abas Fixadas: executar vários SELECTs separados por ";" abre automaticamente abas adicionais (Resultado 2, Resultado 3...). O botão "Fixar" congela o resultado atual em uma aba separada para comparação.' + LineEnding +
     '• Autocompletar SQL (Ctrl+Espaço) sensível a aliases (FROM clientes c WHERE c.).' + LineEnding +
     '• Navegação Ctrl+Click sobre o nome de Tabelas, Views, Procedures, Triggers e Sequences.' + LineEnding +
-    '• Formatador SQL (Alt+F), Biblioteca de Snippets/Favoritos (botão Snippets) e Histórico de Execução.'
+    '• Revisão de DDL antes de alterações (estilo IBExpert), com botões Copiar SQL e Anexar em .sql... (ativável em Ferramentas -> Revisar DDL antes de Alterações).' + LineEnding +
+    '• Busca/Substituição no editor (Ctrl+F / Ctrl+H / F3), Formatador SQL (Alt+F), Biblioteca de Snippets/Favoritos (botão Snippets) e Histórico de Execução.'
   );
 
   AddSec(
@@ -1163,7 +1186,9 @@ begin
     'Ctrl+Espaço   -> Autocompletar SQL / Sugerir colunas no WHERE' + LineEnding +
     'Ctrl+Click    -> Abrir objeto sob o cursor no Editor SQL' + LineEnding +
     'Alt+F         -> Formatar / indentar código SQL' + LineEnding +
-    'Ctrl+F        -> Filtro rápido local no Grid de Resultados' + LineEnding +
+    'Ctrl+F        -> Buscar texto nos Editores SQL / Filtro rápido no Grid' + LineEnding +
+    'Ctrl+H        -> Buscar e Substituir nos Editores SQL' + LineEnding +
+    'F3 / Shift+F3 -> Próxima / Anterior ocorrência da busca no Editor SQL' + LineEnding +
     'Ctrl+Shift+F  -> Busca Global nos Metadados e Código-Fonte' + LineEnding +
     'Ctrl+F12      -> Abrir Script Executive' + LineEnding +
     'F7 / F8 / F4  -> Debugger PSQL: Step Into / Step Over / Até Cursor' + LineEnding +

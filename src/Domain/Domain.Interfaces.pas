@@ -11,8 +11,28 @@ uses
   Domain.ConnectionProfile,
   Domain.QueryResult;
 
+const
+  DDL_CANCELLED_MESSAGE = '__DDL_CANCELLED__';
+
 type
   TConnectionProfileList = specialize TObjectList<TConnectionProfile>;
+
+  { Callback estilo IBExpert para revisar/copiar DDL antes de executar alterações no banco }
+  TDdlConfirmCallback = function(
+    const AProfile: TConnectionProfile;
+    const AOperationTitle: string;
+    const ADdlScript: string;
+    out AEditedDdl: string;
+    const AAllowEdit: Boolean
+  ): Boolean of object;
+
+  { Callback chamado após execução bem-sucedida de DDL (ex.: registrar no histórico) }
+  TDdlExecutedCallback = procedure(
+    const AProfile: TConnectionProfile;
+    const AOperationTitle: string;
+    const ADdlScript: string;
+    const ADurationMs: Int64
+  ) of object;
 
   { Sessão isolada de conexão e transação (ex.: uma por aba do editor SQL) }
   IDatabaseSession = interface
@@ -61,6 +81,13 @@ type
     procedure DeleteFolder(const AFolderName: string);
   end;
 
+  function IsDdlCancelledMessage(const AMessage: string): Boolean;
+
 implementation
+
+function IsDdlCancelledMessage(const AMessage: string): Boolean;
+begin
+  Result := (AMessage = DDL_CANCELLED_MESSAGE);
+end;
 
 end.

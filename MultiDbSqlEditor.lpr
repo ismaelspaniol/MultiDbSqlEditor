@@ -11,14 +11,7 @@ uses
   {$ENDIF}
   Interfaces, // LCL widgetset
   Forms,
-  Domain.DatabaseTypes,
-  Domain.ConnectionProfile,
   Domain.QueryResult,
-  Domain.Interfaces,
-  Application.TestConnectionUseCase,
-  Application.ManageConnectionsUseCase,
-  Application.ExecuteQueryUseCase,
-  Infrastructure.ProviderFactory,
   Presentation.MainForm;
 
 {$R *.res}
@@ -26,8 +19,8 @@ uses
 
 begin
   RequireDerivedFormResource := True;
-  Forms.Application.Scaled := True;
-  Forms.Application.Initialize;
-  Forms.Application.CreateForm(TMainForm, MainForm);
-  Forms.Application.Run;
+  Application.Scaled := True;
+  Application.Initialize;
+  Application.CreateForm(TMainForm, MainForm);
+  Application.Run;
 end.

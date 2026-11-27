@@ -16,7 +16,8 @@ uses
   Domain.TableStructureTypes,
   Application.BrowseSchemaUseCase,
   Application.ManageDatabaseObjectsUseCase,
-  Application.ManageTableStructureUseCase;
+  Application.ManageTableStructureUseCase,
+  Presentation.DdlPreviewDialog;
 
 type
   TImportColumnMap = record
@@ -2274,6 +2275,8 @@ begin
       MessageDlg('Nova Tabela Inválida', Err, mtWarning, [mbOK], 0);
       Exit;
     end;
+    if not ConfirmAndPreviewDDL(Profile, 'Criar Nova Tabela: ' + TblName, CreateDDL, CreateDDL, True) then
+      Exit;
   end;
 
   TestSql := BuildRowImportSQL(Profile.DatabaseType, TblName, 0, Err);

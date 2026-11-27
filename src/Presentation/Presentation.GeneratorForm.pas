@@ -8,6 +8,7 @@ uses
   Classes, SysUtils, Clipbrd, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
+  Domain.Interfaces,
   Application.ManageDatabaseObjectsUseCase;
 
 type
@@ -171,7 +172,7 @@ begin
       UpdatePreviewFromValue(NewVal);
       MessageDlg('Sucesso', Msg, mtInformation, [mbOK], 0);
     end
-    else
+    else if not IsDdlCancelledMessage(Msg) then
       MessageDlg('Erro', Msg, mtError, [mbOK], 0);
   finally
     Screen.Cursor := crDefault;
@@ -199,7 +200,7 @@ begin
       edtNewValue.Text := IntToStr(NewVal);
       UpdatePreviewFromValue(NewVal);
     end
-    else
+    else if not IsDdlCancelledMessage(Msg) then
       MessageDlg('Erro', Msg, mtError, [mbOK], 0);
   finally
     Screen.Cursor := crDefault;
@@ -228,7 +229,7 @@ begin
       MessageDlg('Sucesso', Msg, mtInformation, [mbOK], 0);
       Close;
     end
-    else
+    else if not IsDdlCancelledMessage(Msg) then
       MessageDlg('Erro', Msg, mtError, [mbOK], 0);
   finally
     Screen.Cursor := crDefault;

@@ -6,6 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
+  Clipbrd,
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
   Application.TestConnectionUseCase,
@@ -66,8 +67,14 @@ type
     cbEnvironment: TComboBox;
     lblFolder: TLabel;
     cbFolder: TComboBox;
+    lblConnStr: TLabel;
+    edtConnStr: TEdit;
+    btnCopyConnStr: TButton;
     procedure EnsureEnvironmentControls;
     procedure RefreshFolderItems;
+    procedure UpdateConnectionStringPreview;
+    procedure btnCopyConnStrClick(Sender: TObject);
+    procedure edtPortChange(Sender: TObject);
     procedure TryAutoParseConnectionString(const AText: string);
     procedure UpdateFieldsForDatabaseType;
     procedure LoadFromProfile(const AProfile: TConnectionProfile);
@@ -152,6 +159,42 @@ begin
     if Height < 520 then
       Height := 520;
   end;
+
+  if edtConnStr = nil then
+  begin
+    lblConnStr := TLabel.Create(Self);
+    lblConnStr.Parent := pnlContent;
+    lblConnStr.Left := 0;
+    lblConnStr.Top := 406;
+    lblConnStr.Caption := 'String de conexão (somente leitura — selecione ou clique em Copiar):';
+
+    btnCopyConnStr := TButton.Create(Self);
+    btnCopyConnStr.Parent := pnlContent;
+    btnCopyConnStr.Top := 424;
+    btnCopyConnStr.Width := 80;
+    btnCopyConnStr.Height := 23;
+    btnCopyConnStr.Left := pnlContent.ClientWidth - 80;
+    btnCopyConnStr.Anchors := [akTop, akRight];
+    btnCopyConnStr.Caption := 'Copiar';
+    btnCopyConnStr.OnClick := @btnCopyConnStrClick;
+
+    edtConnStr := TEdit.Create(Self);
+    edtConnStr.Parent := pnlContent;
+    edtConnStr.Left := 0;
+    edtConnStr.Top := 424;
+    edtConnStr.Width := pnlContent.ClientWidth - 86;
+    edtConnStr.Anchors := [akTop, akLeft, akRight];
+    edtConnStr.ReadOnly := True;
+    edtConnStr.TabStop := True;
+    edtConnStr.Color := clBtnFace;
+
+    if Constraints.MinHeight < 545 then
+      Constraints.MinHeight := 545;
+    if Height < 570 then
+      Height := 570;
+
+    edtPort.OnChange := @edtPortChange;
+  end;
 end;
 
 procedure TConnectionForm.RefreshFolderItems;
@@ -221,6 +264,7 @@ begin
     if cbFolder <> nil then
       cbFolder.Text := Trim(AProfile.Folder);
     UpdateFieldsForDatabaseType;
+    UpdateConnectionStringPreview;
   finally
     FIsAutoFilling := False;
   end;
@@ -355,6 +399,7 @@ begin
       edtUsername.Text := 'SYSDBA';
   end;
   UpdateFieldsForDatabaseType;
+  UpdateConnectionStringPreview;
 end;
 
 procedure TConnectionForm.TryAutoParseConnectionString(const AText: string);
@@ -381,17 +426,60 @@ begin
     finally
       FIsAutoFilling := False;
     end;
+    UpdateConnectionStringPreview;
   end;
+end;
+
+procedure TConnectionForm.UpdateConnectionStringPreview;
+var
+  DbType: TDatabaseType;
+  PortNum: Word;
+begin
+  if edtConnStr = nil then
+    Exit;
+
+  if cbDbType.ItemIndex = 1 then
+    DbType := dtPostgreSQL
+  else if cbDbType.ItemIndex = 2 then
+    DbType := dtMariaDB
+  else
+    DbType := dtFirebird;
+
+  PortNum := StrToIntDef(Trim(edtPort.Text), DefaultPortForDatabase(DbType));
+  edtConnStr.Text := TConnectionProfile.BuildConnectionString(
+    DbType,
+    edtHost.Text,
+    PortNum,
+    edtDatabase.Text
+  );
+  if btnCopyConnStr <> nil then
+    btnCopyConnStr.Caption := 'Copiar';
+end;
+
+procedure TConnectionForm.btnCopyConnStrClick(Sender: TObject);
+begin
+  if edtConnStr = nil then
+    Exit;
+  Clipboard.AsText := edtConnStr.Text;
+  if btnCopyConnStr <> nil then
+    btnCopyConnStr.Caption := 'Copiado!';
+end;
+
+procedure TConnectionForm.edtPortChange(Sender: TObject);
+begin
+  UpdateConnectionStringPreview;
 end;
 
 procedure TConnectionForm.edtHostChange(Sender: TObject);
 begin
   TryAutoParseConnectionString(edtHost.Text);
+  UpdateConnectionStringPreview;
 end;
 
 procedure TConnectionForm.edtDatabaseChange(Sender: TObject);
 begin
   TryAutoParseConnectionString(edtDatabase.Text);
+  UpdateConnectionStringPreview;
 end;
 
 procedure TConnectionForm.btnBrowseDbClick(Sender: TObject);

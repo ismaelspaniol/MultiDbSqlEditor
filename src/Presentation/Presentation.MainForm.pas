@@ -39,6 +39,8 @@ uses
   Presentation.DatabaseMaintenanceForm,
   Presentation.ScriptExecutorFrame,
   Presentation.SqlBeautifierHelper,
+  Presentation.SqlEditorSearchBar,
+  Presentation.DdlPreviewDialog,
   Presentation.DatabaseToolsForm,
   Presentation.DataImportForm;
 
@@ -188,6 +190,20 @@ type
     procedure miToolQueryHistoryClick(Sender: TObject);
     procedure miToolReplicationClick(Sender: TObject);
     procedure miToolAboutClick(Sender: TObject);
+    procedure miToolConfirmDdlClick(Sender: TObject);
+    function HandleConfirmDDL(
+      const AProfile: TConnectionProfile;
+      const AOperationTitle: string;
+      const ADdlScript: string;
+      out AEditedDdl: string;
+      const AAllowEdit: Boolean
+    ): Boolean;
+    procedure HandleDDLExecuted(
+      const AProfile: TConnectionProfile;
+      const AOperationTitle: string;
+      const ADdlScript: string;
+      const ADurationMs: Int64
+    );
     procedure miSelectSchemaClick(Sender: TObject);
     procedure FormShortCut(var Msg: TLMKey; var Handled: Boolean);
     procedure tvConnectionsCustomDrawItem(Sender: TCustomTreeView; Node: TTreeNode;
@@ -221,6 +237,7 @@ type
     miConnIndexManager: TMenuItem;
     miConnImportData: TMenuItem;
     miToolAbout: TMenuItem;
+    miToolConfirmDdl: TMenuItem;
     pnlBrandHeader: TPanel;
     btnNewFolder: TButton;
     miNewFolder: TMenuItem;
@@ -387,6 +404,12 @@ begin
     miToolAbout.Caption := 'Sobre o Multi-DB SQL Editor...';
     miToolAbout.OnClick := @miToolAboutClick;
     miMenuScriptExec.Parent.Add(miToolAbout);
+
+    miToolConfirmDdl := TMenuItem.Create(Self);
+    miToolConfirmDdl.Caption := 'Revisar DDL antes de Alterações (estilo IBExpert)';
+    miToolConfirmDdl.Checked := IsDdlPreviewEnabled;
+    miToolConfirmDdl.OnClick := @miToolConfirmDdlClick;
+    miMenuScriptExec.Parent.Add(miToolConfirmDdl);
   end;
 
   miConnMetadataSearch := TMenuItem.Create(pmConnections);
@@ -452,8 +475,9 @@ begin
   pmConnections.Items.Insert(pmConnections.Items.IndexOf(miEditConn) + 1, miMoveToFolder);
 
   OnShortCut := @FormShortCut;
+  InstallGlobalSqlEditorSearchHook;
   ApplyVisualTheme;
-  StatusBar1.SimpleText := 'Pronto (F9 executa | Alt+F formata SQL | Ctrl+F12 Script Executive | Ctrl+Espaço autocompleta)';
+  StatusBar1.SimpleText := 'Pronto (F9 executa | Ctrl+F buscar | Alt+F formata SQL | Ctrl+F12 Script Executive | Ctrl+Espaço autocompleta)';
 end;
 
 procedure TMainForm.FormShortCut(var Msg: TLMKey; var Handled: Boolean);
@@ -549,6 +573,7 @@ end;
 
 procedure TMainForm.FormDestroy(Sender: TObject);
 begin
+  UninstallGlobalSqlEditorSearchHook;
   Forms.Application.RemoveAsyncCalls(Self);
   SaveWorkspace;
   FreeAndNil(FNodeDataList);
@@ -582,8 +607,12 @@ begin
   FExecuteQuery := TExecuteQueryUseCase.Create;
   FBrowseSchema := TBrowseSchemaUseCase.Create(FFactory);
   FManageObjects := TManageDatabaseObjectsUseCase.Create(FFactory);
+  FManageObjects.OnConfirmDDL := @HandleConfirmDDL;
+  FManageObjects.OnDDLExecuted := @HandleDDLExecuted;
   FMonitorUseCase := TDatabaseMonitoringUseCase.Create;
   FManageTableStructure := TManageTableStructureUseCase.Create(FFactory);
+  FManageTableStructure.OnConfirmDDL := @HandleConfirmDDL;
+  FManageTableStructure.OnDDLExecuted := @HandleDDLExecuted;
 end;
 
 function TMainForm.CreateNodeData(
@@ -1514,6 +1543,7 @@ begin
   ObjFrame.Align := alClient;
   ObjFrame.OnObjectChanged := @HandleObjectChanged;
   ObjFrame.OnOpenViewData := @HandleOpenViewData;
+  ObjFrame.OnOpenObject := @HandleOpenTableDependency;
   ObjFrame.Initialize(AProfile, AKind, AObjectName, FManageObjects, DDL, AIsNew);
 
   pgEditors.ActivePage := Tab;
@@ -2933,8 +2963,10 @@ begin
       if TGeneratorForm.Execute(Data.Profile, NewName, FManageObjects, WasDropped) and WasDropped then
         ReloadCategoryForProfile(Data.Profile.Id, sokGenerators);
     end
+    else if not IsDdlCancelledMessage(Msg) then
+      MessageDlg('Erro ao criar Generator', Msg, mtError, [mbOK], 0)
     else
-      MessageDlg('Erro ao criar Generator', Msg, mtError, [mbOK], 0);
+      StatusBar1.SimpleText := 'Criação de Generator cancelada.';
   end
   else if Data.Category in [sokViews, sokProcedures, sokTriggers] then
     OpenObjectEditorTab(Data.Profile, Data.Category, '', True);
@@ -2990,8 +3022,10 @@ begin
     ReloadCategoryForProfile(Data.Profile.Id, Data.Category);
     StatusBar1.SimpleText := Msg;
   end
+  else if not IsDdlCancelledMessage(Msg) then
+    MessageDlg('Erro ao excluir objeto', Msg, mtError, [mbOK], 0)
   else
-    MessageDlg('Erro ao excluir objeto', Msg, mtError, [mbOK], 0);
+    StatusBar1.SimpleText := 'Exclusão de objeto cancelada.';
 end;
 
 procedure TMainForm.miDuplicateConnClick(Sender: TObject);
@@ -3645,6 +3679,46 @@ begin
   finally
     Folders.Free;
   end;
+end;
+
+procedure TMainForm.miToolConfirmDdlClick(Sender: TObject);
+begin
+  SetDdlPreviewEnabled(not IsDdlPreviewEnabled);
+  if miToolConfirmDdl <> nil then
+    miToolConfirmDdl.Checked := IsDdlPreviewEnabled;
+end;
+
+function TMainForm.HandleConfirmDDL(
+  const AProfile: TConnectionProfile;
+  const AOperationTitle: string;
+  const ADdlScript: string;
+  out AEditedDdl: string;
+  const AAllowEdit: Boolean
+): Boolean;
+begin
+  Result := ConfirmAndPreviewDDL(AProfile, AOperationTitle, ADdlScript, AEditedDdl, AAllowEdit);
+  if miToolConfirmDdl <> nil then
+    miToolConfirmDdl.Checked := IsDdlPreviewEnabled;
+end;
+
+procedure TMainForm.HandleDDLExecuted(
+  const AProfile: TConnectionProfile;
+  const AOperationTitle: string;
+  const ADdlScript: string;
+  const ADurationMs: Int64
+);
+begin
+  if (FQueryHistory <> nil) and (AProfile <> nil) and (Trim(ADdlScript) <> '') then
+    FQueryHistory.RecordExecution(
+      AProfile.Id,
+      AProfile.Name,
+      AProfile.DatabaseType,
+      ADdlScript,
+      ADurationMs,
+      True,
+      'DDL: ' + AOperationTitle,
+      ''
+    );
 end;
 
 end.

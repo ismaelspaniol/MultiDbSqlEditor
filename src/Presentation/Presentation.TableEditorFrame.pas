@@ -23,6 +23,7 @@ uses
   LCLType,
   SynEdit,
   SynHighlighterSQL,
+  Presentation.SqlObjectLinkController,
   Domain.DatabaseTypes,
   Domain.ConnectionProfile,
   Domain.QueryResult,
@@ -224,6 +225,8 @@ type
     btnDropTable: TButton;
     FApplyingWhereSuggest: Boolean;
     FTriggerCompletion: TSqlCompletionController;
+    FTriggerLinkCtrl: TSqlObjectLinkController;
+    FDdlLinkCtrl: TSqlObjectLinkController;
     FCurrentTriggerName: string;
     FTriggerIsNew: Boolean;
     FTriggerDirty: Boolean;
@@ -234,6 +237,7 @@ type
     FOnOpenSqlScript: TOnTableOpenSqlScript;
     FOnStructureChanged: TOnTableProfileChanged;
     FOnTriggersChanged: TOnTableProfileChanged;
+    procedure HandleOpenEditorObjectLink(const AProfile: TConnectionProfile; const AKind: TSchemaObjectKind; const AObjectName: string);
     procedure ConfigureGrids;
     procedure LoadAndDisplayStructure(const ASelectTriggerName: string = '');
     procedure PopulateFieldsGrid;
@@ -476,7 +480,7 @@ begin
 
   if Ok then
     Dlg.ModalResult := mrOk
-  else
+  else if not IsDdlCancelledMessage(Msg) then
     MessageDlg('Erro ao alterar estrutura', Msg, mtError, [mbOK], 0);
 end;
 
@@ -639,7 +643,7 @@ begin
        Msg
      ) then
     Dlg.ModalResult := mrOk
-  else
+  else if not IsDdlCancelledMessage(Msg) then
     MessageDlg('Erro ao criar índice', Msg, mtError, [mbOK], 0);
 end;
 
@@ -660,6 +664,8 @@ begin
   FLastDataResult := nil;
   FDataLoaded := False;
   FTriggerCompletion := nil;
+  FTriggerLinkCtrl := nil;
+  FDdlLinkCtrl := nil;
   FCurrentTriggerName := '';
   FTriggerIsNew := False;
   FTriggerDirty := False;
@@ -734,6 +740,7 @@ begin
 
   SynSQLSynDDL.Enabled := True;
   SynEditDDL.Highlighter := SynSQLSynDDL;
+  SynEditDDL.Keystrokes.ResetDefaults;
   SynSQLSynTrigger.Enabled := True;
   SynEditTrigger.Highlighter := SynSQLSynTrigger;
   SynEditTrigger.Keystrokes.ResetDefaults;
@@ -820,6 +827,28 @@ begin
   FTriggerCompletion.DefaultTriggerTable := FTableName;
   FTriggerCompletion.ClearMetadataCache;
 
+  if FTriggerLinkCtrl = nil then
+    FTriggerLinkCtrl := TSqlObjectLinkController.Create(
+      Self,
+      SynEditTrigger,
+      SynSQLSynTrigger,
+      @GetCompletionProfile,
+      @ExecuteCompletionMetadataQuery,
+      @HandleOpenEditorObjectLink
+    );
+  FTriggerLinkCtrl.ClearCache;
+
+  if FDdlLinkCtrl = nil then
+    FDdlLinkCtrl := TSqlObjectLinkController.Create(
+      Self,
+      SynEditDDL,
+      SynSQLSynDDL,
+      @GetCompletionProfile,
+      @ExecuteCompletionMetadataQuery,
+      @HandleOpenEditorObjectLink
+    );
+  FDdlLinkCtrl.ClearCache;
+
   if FProfile <> nil then
     lblTableTitle.Caption := Format('Tabela: %s  |  Conexão: %s (%s)', [
       FTableName,
@@ -840,10 +869,24 @@ begin
     LoadTableDataGrid;
 end;
 
+procedure TTableEditorFrame.HandleOpenEditorObjectLink(
+  const AProfile: TConnectionProfile;
+  const AKind: TSchemaObjectKind;
+  const AObjectName: string
+);
+begin
+  if Assigned(FOnOpenDependency) then
+    FOnOpenDependency(AProfile, AKind, AObjectName);
+end;
+
 procedure TTableEditorFrame.ClearMetadataCache;
 begin
   if FTriggerCompletion <> nil then
     FTriggerCompletion.ClearMetadataCache;
+  if FTriggerLinkCtrl <> nil then
+    FTriggerLinkCtrl.ClearCache;
+  if FDdlLinkCtrl <> nil then
+    FDdlLinkCtrl.ClearCache;
 end;
 
 function TTableEditorFrame.HasUnsavedTriggerChanges: Boolean;
@@ -2571,7 +2614,7 @@ begin
     if Assigned(FOnStructureChanged) and (FProfile <> nil) then
       FOnStructureChanged(FProfile.Id);
   end
-  else
+  else if not IsDdlCancelledMessage(Msg) then
     MessageDlg('Erro ao excluir campo', Msg, mtError, [mbOK], 0);
 end;
 
@@ -2676,7 +2719,7 @@ begin
     if Assigned(FOnStructureChanged) and (FProfile <> nil) then
       FOnStructureChanged(FProfile.Id);
   end
-  else
+  else if not IsDdlCancelledMessage(Msg) then
     MessageDlg('Erro ao alterar status do índice', Msg, mtError, [mbOK], 0);
 end;
 
@@ -2713,7 +2756,7 @@ begin
     if Assigned(FOnStructureChanged) and (FProfile <> nil) then
       FOnStructureChanged(FProfile.Id);
   end
-  else
+  else if not IsDdlCancelledMessage(Msg) then
     MessageDlg('Erro ao excluir índice', Msg, mtError, [mbOK], 0);
 end;
 
@@ -2758,6 +2801,8 @@ begin
       if Assigned(FOnTriggersChanged) then
         FOnTriggersChanged(FProfile.Id);
     end
+    else if IsDdlCancelledMessage(Msg) then
+      LogTriggerMessage('Alteração cancelada pelo usuário.')
     else
       LogTriggerMessage('ERRO: ' + Msg);
   finally
@@ -2797,6 +2842,8 @@ begin
       if Assigned(FOnTriggersChanged) then
         FOnTriggersChanged(FProfile.Id);
     end
+    else if IsDdlCancelledMessage(Msg) then
+      LogTriggerMessage('Exclusão cancelada pelo usuário.')
     else
       LogTriggerMessage('ERRO AO EXCLUIR: ' + Msg);
   finally
@@ -2847,6 +2894,8 @@ begin
       if Assigned(FOnTriggersChanged) then
         FOnTriggersChanged(FProfile.Id);
     end
+    else if IsDdlCancelledMessage(Msg) then
+      LogTriggerMessage('Compilação cancelada pelo usuário.')
     else
       LogTriggerMessage('ERRO AO COMPILAR: ' + Msg);
   finally
@@ -3218,7 +3267,7 @@ begin
         FOnStructureChanged(ProfileId);
       MessageDlg('Tabela Excluída', Msg, mtInformation, [mbOK], 0);
     end
-    else
+    else if not IsDdlCancelledMessage(Msg) then
       MessageDlg('Erro ao Excluir Tabela', Msg, mtError, [mbOK], 0);
   finally
     Screen.Cursor := crDefault;

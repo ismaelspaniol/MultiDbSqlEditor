@@ -28,7 +28,7 @@ type
     FOnOpenObject: TOpenDbObjectLinkEvent;
     FLinkObjects: TStringList;
     FLoaded: Boolean;
-    function FindObjectKind(const AName: string; out AKind: TSchemaObjectKind): Boolean;
+    function FindObjectKind(const AName: string; out AKind: TSchemaObjectKind; out ACanonicalName: string): Boolean;
     procedure HandleMouseLink(Sender: TObject; X, Y: Integer; var AllowMouseLink: Boolean);
     procedure HandleClickLink(Sender: TObject; Button: TMouseButton;
       Shift: TShiftState; X, Y: Integer);
@@ -190,13 +190,15 @@ end;
 
 function TSqlObjectLinkController.FindObjectKind(
   const AName: string;
-  out AKind: TSchemaObjectKind
+  out AKind: TSchemaObjectKind;
+  out ACanonicalName: string
 ): Boolean;
 var
   Idx: Integer;
   Clean: string;
 begin
   Result := False;
+  ACanonicalName := '';
   if (FLinkObjects = nil) or (Trim(AName) = '') then
     Exit;
   Clean := Trim(AName);
@@ -206,6 +208,7 @@ begin
   if Idx >= 0 then
   begin
     AKind := TSchemaObjectKind(PtrInt(FLinkObjects.Objects[Idx]));
+    ACanonicalName := FLinkObjects[Idx];
     Result := True;
   end;
 end;
@@ -213,7 +216,7 @@ end;
 procedure TSqlObjectLinkController.HandleMouseLink(Sender: TObject; X, Y: Integer;
   var AllowMouseLink: Boolean);
 var
-  Word: string;
+  Word, CanonicalName: string;
   Kind: TSchemaObjectKind;
 begin
   AllowMouseLink := False;
@@ -223,14 +226,14 @@ begin
     EnsureLoaded;
   Word := FSynEdit.GetWordAtRowCol(Point(X, Y));
   if Word <> '' then
-    AllowMouseLink := FindObjectKind(Word, Kind);
+    AllowMouseLink := FindObjectKind(Word, Kind, CanonicalName);
 end;
 
 procedure TSqlObjectLinkController.HandleClickLink(Sender: TObject; Button: TMouseButton;
   Shift: TShiftState; X, Y: Integer);
 var
   Pt: TPoint;
-  Word: string;
+  Word, CanonicalName: string;
   Kind: TSchemaObjectKind;
   Profile: TConnectionProfile;
 begin
@@ -238,11 +241,11 @@ begin
     Exit;
   Pt := FSynEdit.PixelsToRowColumn(Point(X, Y));
   Word := FSynEdit.GetWordAtRowCol(Pt);
-  if (Word <> '') and FindObjectKind(Word, Kind) and Assigned(FGetProfile) then
+  if (Word <> '') and FindObjectKind(Word, Kind, CanonicalName) and Assigned(FGetProfile) then
   begin
     Profile := FGetProfile();
     if (Profile <> nil) and Assigned(FOnOpenObject) then
-      FOnOpenObject(Profile, Kind, Word);
+      FOnOpenObject(Profile, Kind, CanonicalName);
   end;
 end;
 

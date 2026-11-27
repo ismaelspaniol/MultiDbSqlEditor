@@ -280,7 +280,7 @@ begin
 
   if Ok then
     Dlg.ModalResult := mrOk
-  else
+  else if not IsDdlCancelledMessage(Msg) then
     MessageDlg('Erro ao alterar estrutura', Msg, mtError, [mbOK], 0);
 end;
 
@@ -443,7 +443,7 @@ begin
        Msg
      ) then
     Dlg.ModalResult := mrOk
-  else
+  else if not IsDdlCancelledMessage(Msg) then
     MessageDlg('Erro ao criar índice', Msg, mtError, [mbOK], 0);
 end;
 
@@ -482,6 +482,7 @@ begin
       Frm.SynSQLSynDDL.SQLDialect := sqlFirebird40;
     Frm.SynSQLSynDDL.Enabled := True;
     Frm.SynEditDDL.Highlighter := Frm.SynSQLSynDDL;
+    Frm.SynEditDDL.Keystrokes.ResetDefaults;
     Frm.Caption := Format('Tabela: %s (%s)', [Frm.FTableName, AProfile.Name]);
     Frm.lblTableTitle.Caption := Format('Tabela: %s  |  Conexão: %s (%s)', [
       Frm.FTableName,
@@ -1378,7 +1379,7 @@ begin
     LoadAndDisplayStructure;
     lblStatus.Caption := Msg;
   end
-  else
+  else if not IsDdlCancelledMessage(Msg) then
     MessageDlg('Erro ao excluir campo', Msg, mtError, [mbOK], 0);
 end;
 
@@ -1460,7 +1461,7 @@ begin
     LoadAndDisplayStructure;
     lblStatus.Caption := Msg;
   end
-  else
+  else if not IsDdlCancelledMessage(Msg) then
     MessageDlg('Erro ao alterar status do índice', Msg, mtError, [mbOK], 0);
 end;
 
@@ -1496,7 +1497,7 @@ begin
     LoadAndDisplayStructure;
     lblStatus.Caption := Msg;
   end
-  else
+  else if not IsDdlCancelledMessage(Msg) then
     MessageDlg('Erro ao excluir índice', Msg, mtError, [mbOK], 0);
 end;
 

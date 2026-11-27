@@ -50,6 +50,8 @@ type
   TManageDatabaseObjectsUseCase = class
   private
     FFactory: IDatabaseProviderFactory;
+    FOnConfirmDDL: TDdlConfirmCallback;
+    FOnDDLExecuted: TDdlExecutedCallback;
     function ExecuteSingleQuery(const AProfile: TConnectionProfile; const ASQL: string): TQueryResult;
     function LoadFirebirdViewDDL(const AProfile: TConnectionProfile; const AObjectName: string): string;
     function LoadFirebirdProcedureDDL(const AProfile: TConnectionProfile; const AObjectName: string): string;
@@ -77,7 +79,9 @@ type
     function CompileDDL(
       const AProfile: TConnectionProfile;
       const ADDL: string;
-      out AMessage: string
+      out AMessage: string;
+      const AOperationTitle: string = 'Compilar / Executar DDL';
+      const ASkipConfirm: Boolean = False
     ): Boolean;
     function DropObject(
       const AProfile: TConnectionProfile;
@@ -131,6 +135,8 @@ type
       const AGeneratorName: string;
       out AMessage: string
     ): Boolean;
+    property OnConfirmDDL: TDdlConfirmCallback read FOnConfirmDDL write FOnConfirmDDL;
+    property OnDDLExecuted: TDdlExecutedCallback read FOnDDLExecuted write FOnDDLExecuted;
   end;
 
 function QuoteDbIdent(const ADbType: TDatabaseType; const AName: string): string;
@@ -815,12 +821,15 @@ end;
 function TManageDatabaseObjectsUseCase.CompileDDL(
   const AProfile: TConnectionProfile;
   const ADDL: string;
-  out AMessage: string
+  out AMessage: string;
+  const AOperationTitle: string;
+  const ASkipConfirm: Boolean
 ): Boolean;
 var
   Provider: IDatabaseProvider;
   Session: IDatabaseSession;
   Res: TQueryResult;
+  EffectiveDDL: string;
 begin
   Result := False;
   AMessage := '';
@@ -835,11 +844,26 @@ begin
     Exit;
   end;
 
+  EffectiveDDL := ADDL;
+  if (not ASkipConfirm) and Assigned(FOnConfirmDDL) then
+  begin
+    if not FOnConfirmDDL(AProfile, AOperationTitle, ADDL, EffectiveDDL, True) then
+    begin
+      AMessage := DDL_CANCELLED_MESSAGE;
+      Exit;
+    end;
+    if Trim(EffectiveDDL) = '' then
+    begin
+      AMessage := 'Nenhum código DDL informado.';
+      Exit;
+    end;
+  end;
+
   Provider := FFactory.GetProvider(AProfile.DatabaseType);
   Session := Provider.CreateSession(AProfile);
   try
     Session.Connect;
-    Res := Session.ExecuteSQL(ADDL, False, 0);
+    Res := Session.ExecuteSQL(EffectiveDDL, False, 0);
     try
       if not Res.Success then
       begin
@@ -852,6 +876,8 @@ begin
         Session.Commit;
       Result := True;
       AMessage := Format('Objeto compilado/executado com sucesso (%d ms).', [Res.ExecutionTimeMs]);
+      if Assigned(FOnDDLExecuted) then
+        FOnDDLExecuted(AProfile, AOperationTitle, EffectiveDDL, Res.ExecutionTimeMs);
     finally
       Res.Free;
     end;
@@ -906,7 +932,7 @@ begin
       raise Exception.Create('Tipo de objeto inválido para exclusão.');
     end;
   end;
-  Result := CompileDDL(AProfile, SQL, AMessage);
+  Result := CompileDDL(AProfile, SQL, AMessage, 'Excluir Objeto: ' + AObjectName);
   if Result then
     AMessage := Format('Objeto "%s" excluído com sucesso.', [AObjectName]);
 end;
@@ -1038,7 +1064,7 @@ begin
   else
     SQL := Format('SET GENERATOR %s TO %d', [QuoteDbIdent(dtFirebird, AGeneratorName), ANewValue]);
 
-  Result := CompileDDL(AProfile, SQL, AMessage);
+  Result := CompileDDL(AProfile, SQL, AMessage, 'Alterar Valor do Generator/Sequence: ' + AGeneratorName);
   if Result then
     AMessage := Format('Valor de "%s" definido para %d.', [AGeneratorName, ANewValue]);
 end;
@@ -1120,7 +1146,7 @@ function TManageDatabaseObjectsUseCase.CreateGenerator(
   out AMessage: string
 ): Boolean;
 var
-  SQL, Msg2: string;
+  SQL, SetValSQL, CombinedPreview, IgnoredEdited, Msg2: string;
 begin
   if Trim(AGeneratorName) = '' then
   begin
@@ -1134,17 +1160,35 @@ begin
   else
     SQL := Format('CREATE GENERATOR %s', [QuoteDbIdent(dtFirebird, AGeneratorName)]);
 
-  Result := CompileDDL(AProfile, SQL, AMessage);
-  if Result and (AProfile.DatabaseType = dtFirebird) and (AInitialValue <> 0) then
+  if (AProfile.DatabaseType = dtFirebird) and (AInitialValue <> 0) then
   begin
-    Result := SetGeneratorValue(AProfile, AGeneratorName, AInitialValue, Msg2);
+    SetValSQL := Format('SET GENERATOR %s TO %d', [QuoteDbIdent(dtFirebird, AGeneratorName), AInitialValue]);
+    if Assigned(FOnConfirmDDL) then
+    begin
+      CombinedPreview := SQL + ';' + LineEnding + SetValSQL + ';';
+      if not FOnConfirmDDL(AProfile, 'Criar Generator/Sequence: ' + AGeneratorName, CombinedPreview, IgnoredEdited, False) then
+      begin
+        Result := False;
+        AMessage := DDL_CANCELLED_MESSAGE;
+        Exit;
+      end;
+    end;
+    Result := CompileDDL(AProfile, SQL, AMessage, 'Criar Generator/Sequence: ' + AGeneratorName, True);
     if Result then
-      AMessage := Format('Generator "%s" criado com valor inicial %d.', [AGeneratorName, AInitialValue])
-    else
-      AMessage := Msg2;
+    begin
+      Result := CompileDDL(AProfile, SetValSQL, Msg2, 'Definir Valor Inicial do Generator: ' + AGeneratorName, True);
+      if Result then
+        AMessage := Format('Generator "%s" criado com valor inicial %d.', [AGeneratorName, AInitialValue])
+      else
+        AMessage := Msg2;
+    end;
   end
-  else if Result then
-    AMessage := Format('Generator "%s" criado com sucesso.', [AGeneratorName]);
+  else
+  begin
+    Result := CompileDDL(AProfile, SQL, AMessage, 'Criar Generator/Sequence: ' + AGeneratorName);
+    if Result then
+      AMessage := Format('Generator "%s" criado com sucesso.', [AGeneratorName]);
+  end;
 end;
 
 function TManageDatabaseObjectsUseCase.DropGenerator(

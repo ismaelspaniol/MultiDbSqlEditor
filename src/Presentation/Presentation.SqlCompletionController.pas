@@ -152,11 +152,19 @@ begin
     Exit;
 
   if Profile.DatabaseType = dtPostgreSQL then
-    SQL := 'SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() ORDER BY 1'
+    SQL :=
+      'SELECT table_name FROM information_schema.tables WHERE table_schema = current_schema() ' +
+      'UNION ' +
+      'SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = current_schema() ' +
+      'ORDER BY 1'
   else if Profile.DatabaseType = dtMariaDB then
     SQL := 'SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() ORDER BY 1'
   else
-    SQL := 'SELECT TRIM(RDB$RELATION_NAME) FROM RDB$RELATIONS WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 ORDER BY 1';
+    SQL :=
+      'SELECT TRIM(RDB$RELATION_NAME) FROM RDB$RELATIONS WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 ' +
+      'UNION ' +
+      'SELECT TRIM(RDB$PROCEDURE_NAME) FROM RDB$PROCEDURES WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 ' +
+      'ORDER BY 1';
 
   try
     Res := FOnExecuteMetadataQuery(SQL);
@@ -487,10 +495,39 @@ end;
 procedure TSqlCompletionController.LoadColumnsForTable(const ATableName: string; const ATarget: TStrings);
 var
   Profile: TConnectionProfile;
-  CacheKey, SQL, ColName, SafeTable: string;
-  Res: TQueryResult;
+  CacheKey, SQL, SafeTable: string;
   I, CacheIdx: Integer;
   CachedList, ColList: TStringList;
+
+  function LoadColumnsFromQuery(const AQuerySQL: string; const AOutList: TStrings): Boolean;
+  var
+    Res: TQueryResult;
+    J: Integer;
+    ColName: string;
+  begin
+    Result := False;
+    try
+      Res := FOnExecuteMetadataQuery(AQuerySQL);
+      if Res = nil then
+        Exit;
+      try
+        if Res.Success and Res.HasResultSet and (Res.ColumnCount > 0) then
+        begin
+          for J := 0 to Res.RowCount - 1 do
+          begin
+            ColName := Trim(Res.GetRow(J)[0].AsText);
+            if ColName <> '' then
+              AOutList.Add(ColName);
+          end;
+          Result := AOutList.Count > 0;
+        end;
+      finally
+        Res.Free;
+      end;
+    except
+    end;
+  end;
+
 begin
   CacheKey := UnquoteIdentifier(ATableName);
   if (CacheKey = '') or (ATarget = nil) or (not Assigned(FOnExecuteMetadataQuery)) then
@@ -528,38 +565,73 @@ begin
       [SafeTable]
     );
 
+  ColList := TStringList.Create;
   try
-    Res := FOnExecuteMetadataQuery(SQL);
-    if Res = nil then
-      Exit;
-    try
-      if Res.Success and Res.HasResultSet and (Res.ColumnCount > 0) then
+    if not LoadColumnsFromQuery(SQL, ColList) then
+    begin
+      if Profile.DatabaseType = dtFirebird then
       begin
-        ColList := TStringList.Create;
-        try
-          for I := 0 to Res.RowCount - 1 do
-          begin
-            ColName := Trim(Res.GetRow(I)[0].AsText);
-            if ColName <> '' then
-              ColList.Add(ColName);
-          end;
-
-          for I := 0 to ColList.Count - 1 do
-            ATarget.Add(ColList[I]);
-
-          if (ColList.Count > 0) and (FCachedColumns <> nil) then
-          begin
-            FCachedColumns.AddObject(CacheKey, ColList);
-            ColList := nil;
-          end;
-        finally
-          ColList.Free;
+        SQL := Format(
+          'SELECT TRIM(RDB$PARAMETER_NAME) ' +
+          'FROM RDB$PROCEDURE_PARAMETERS ' +
+          'WHERE UPPER(TRIM(RDB$PROCEDURE_NAME)) = UPPER(''%s'') ' +
+          '  AND RDB$PARAMETER_TYPE = 1 ' +
+          'ORDER BY RDB$PARAMETER_NUMBER',
+          [SafeTable]
+        );
+        LoadColumnsFromQuery(SQL, ColList);
+      end
+      else if Profile.DatabaseType = dtPostgreSQL then
+      begin
+        SQL := Format(
+          'SELECT u.arg_name ' +
+          'FROM ( ' +
+          '  SELECT p.proargnames, p.proargmodes ' +
+          '  FROM pg_proc p ' +
+          '  JOIN pg_namespace n ON n.oid = p.pronamespace ' +
+          '  WHERE n.nspname = current_schema() ' +
+          '    AND lower(p.proname) = lower(''%s'') ' +
+          '    AND p.proargnames IS NOT NULL ' +
+          '  ORDER BY p.oid ' +
+          '  LIMIT 1 ' +
+          ') proc ' +
+          'CROSS JOIN LATERAL unnest(proc.proargnames, COALESCE(proc.proargmodes, ARRAY[]::char[])) WITH ORDINALITY AS u(arg_name, arg_mode, ord) ' +
+          'WHERE COALESCE(u.arg_name, '''') <> '''' ' +
+          '  AND u.arg_mode IN (''o'', ''b'', ''t'') ' +
+          'ORDER BY u.ord',
+          [SafeTable]
+        );
+        if not LoadColumnsFromQuery(SQL, ColList) then
+        begin
+          SQL := Format(
+            'SELECT a.attname ' +
+            'FROM pg_proc p ' +
+            'JOIN pg_namespace n ON n.oid = p.pronamespace ' +
+            'JOIN pg_type t ON t.oid = p.prorettype ' +
+            'JOIN pg_attribute a ON a.attrelid = t.typrelid ' +
+            'WHERE n.nspname = current_schema() ' +
+            '  AND lower(p.proname) = lower(''%s'') ' +
+            '  AND t.typrelid <> 0 ' +
+            '  AND a.attnum > 0 ' +
+            '  AND NOT a.attisdropped ' +
+            'ORDER BY a.attnum',
+            [SafeTable]
+          );
+          LoadColumnsFromQuery(SQL, ColList);
         end;
       end;
-    finally
-      Res.Free;
     end;
-  except
+
+    for I := 0 to ColList.Count - 1 do
+      ATarget.Add(ColList[I]);
+
+    if (ColList.Count > 0) and (FCachedColumns <> nil) then
+    begin
+      FCachedColumns.AddObject(CacheKey, ColList);
+      ColList := nil;
+    end;
+  finally
+    ColList.Free;
   end;
 end;
 

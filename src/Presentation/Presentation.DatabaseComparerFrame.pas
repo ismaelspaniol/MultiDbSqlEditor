@@ -319,6 +319,9 @@ begin
   SynEditScript.Highlighter := SynSQLSyn1;
   SynEditSourceDDL.Highlighter := SynSQLSyn1;
   SynEditTargetDDL.Highlighter := SynSQLSyn1;
+  SynEditScript.Keystrokes.ResetDefaults;
+  SynEditSourceDDL.Keystrokes.ResetDefaults;
+  SynEditTargetDDL.Keystrokes.ResetDefaults;
   SynEditSourceDDL.OnSpecialLineColors := @SynEditDDLSpecialLineColors;
   SynEditTargetDDL.OnSpecialLineColors := @SynEditDDLSpecialLineColors;
 

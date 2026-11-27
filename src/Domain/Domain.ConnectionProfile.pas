@@ -43,6 +43,13 @@ type
       out APort: Word;
       out ADatabase: string
     ): Boolean;
+    class function BuildConnectionString(
+      ADbType: TDatabaseType;
+      const AHost: string;
+      APort: Word;
+      const ADatabase: string
+    ): string;
+    function ConnectionString: string;
 
     property Id: string read FId write FId;
     property Name: string read FName write FName;
@@ -208,6 +215,47 @@ begin
 
   ADatabase := DbPart;
   Result := True;
+end;
+
+class function TConnectionProfile.BuildConnectionString(
+  ADbType: TDatabaseType;
+  const AHost: string;
+  APort: Word;
+  const ADatabase: string
+): string;
+var
+  H, D: string;
+  P: Word;
+begin
+  H := Trim(AHost);
+  D := Trim(ADatabase);
+  P := APort;
+  if P = 0 then
+    P := DefaultPortForDatabase(ADbType);
+
+  if ADbType = dtFirebird then
+  begin
+    if H = '' then
+      Result := D
+    else if D = '' then
+      Result := Format('%s/%d:', [H, P])
+    else
+      Result := Format('%s/%d:%s', [H, P, D]);
+  end
+  else
+  begin
+    if H = '' then
+      Result := D
+    else if D = '' then
+      Result := Format('%s:%d', [H, P])
+    else
+      Result := Format('%s:%d/%s', [H, P, D]);
+  end;
+end;
+
+function TConnectionProfile.ConnectionString: string;
+begin
+  Result := BuildConnectionString(FDatabaseType, FHost, FPort, FDatabase);
 end;
 
 end.
